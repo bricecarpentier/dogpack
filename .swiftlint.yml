@@ -1,0 +1,29 @@
+strict: true
+
+disabled_rules:
+  # Formatting rules managed by SwiftFormat
+  - trailing_whitespace
+  - vertical_whitespace
+  - opening_brace
+  - statement_position
+  - colon
+  - comma
+  - return_arrow_whitespace
+  - leading_whitespace
+  - operator_whitespace
+  - trailing_newline
+  - indentation_width
+  - vertical_parameter_alignment
+  - vertical_parameter_alignment_on_call
+  - void_return
+  - number_separator
+  - literal_expression_end_indentation
+  - closing_brace
+  - control_statement
+  - unused_closure_parameter
+  - trailing_comma
+  - mark
+  - explicit_type_interface
+  - file_header
+  - file_name
+  - type_contents_order
