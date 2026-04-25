@@ -10,7 +10,7 @@ disabled_rules:
   - comma
   - return_arrow_whitespace
   - leading_whitespace
-  - operator_whitespace
+  - function_name_whitespace
   - trailing_newline
   - indentation_width
   - vertical_parameter_alignment

@@ -2,3 +2,59 @@
 swift = "6.3.1"
 swiftlint = "0.63.2"
 swiftformat = "0.61.0"
+
+[tasks.format]
+description = "Format Swift source files"
+run = "swift package --allow-writing-to-package-directory format-source-code"
+
+[tasks.compile]
+description = "Compile the project"
+usage = '''
+flag "-r --release" help="Build in release mode"
+flag "--show-bin-path" help="Show binary output path"
+'''
+run = "swift build --arch arm64 --arch x86_64 ${usage_release:+-c release} ${usage_show_bin_path:+--show-bin-path}"
+
+[tasks.lint]
+description = "Lint Swift source files"
+run = "swift package lint"
+
+[tasks.build]
+description = "Format, compile, then lint"
+usage = '''
+flag "-r --release" help="Build in release mode"
+'''
+run = """
+mise run format
+mise run compile ${usage_release:+-c release}
+mise run lint
+"""
+
+[tasks.test]
+description = "Run tests"
+run = "swift test"
+
+[tasks.clean]
+description = "Delete build artifacts"
+run = "rm -rf .build"
+
+[tasks.dev]
+description = "Build and run the project"
+run = "swift run"
+
+[tasks.run]
+description = "Run a previously compiled build"
+usage = '''
+flag "-r --release" help="Run release build"
+'''
+run = 'PATH="$(mise run compile --show-bin-path${usage_release:+ -c release}):$PATH" dogpack'
+
+[shell_alias]
+build = "mise run build"
+clean = "mise run clean"
+compile = "mise run compile"
+dev = "mise run dev"
+format = "mise run format"
+lint = "mise run lint"
+run = "mise run run"
+test = "mise run test"
