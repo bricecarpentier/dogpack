@@ -73,15 +73,15 @@ final public class OpenAIProvider: Provider, @unchecked Sendable {
         case let .user(text):
             return ["role": "user", "content": text]
         case let .assistant(msg):
-            let content = msg.content.map { block -> [String: String] in
+            let text = msg.content.compactMap { block -> String? in
                 switch block {
                 case let .text(text):
-                    return ["type": "text", "text": text]
-                case let .reasoning(text):
-                    return ["type": "reasoning", "text": text]
+                    return text
+                case .reasoning:
+                    return nil
                 }
-            }
-            return ["role": "assistant", "content": content]
+            }.joined()
+            return ["role": "assistant", "content": text]
         }
     }
 
