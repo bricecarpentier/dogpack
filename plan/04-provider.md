@@ -31,10 +31,18 @@ protocol Provider: Sendable {
 - Maps provider-specific JSON shapes to generic `ProviderEvent`/`ContentBlock`
 - Supports `Configuration` struct for provider-specific settings (reasoning effort, etc.)
 
-## Tests use MockTransport
-- Feed canned SSE JSON payloads through provider
-- Verify correct `ProviderEvent` sequence
-- Verify request JSON serialization shape
+## Implementation
+
+### Test strategy
+Three integration tests, all using `MockTransport`:
+
+1. **Full streaming turn** — Build a `ProviderRequest`, create `MockTransport` with canned multi-event SSE JSON (`data: {...}\n\n` lines), create `OpenAIProvider` with that transport, call `send()`, consume all `ProviderEvent`s from `ResponseStream`, verify the sequence (`textDelta`, `reasoningDelta`, `done(.stop)`). Exercises request serialization → transport → SSE parsing → event mapping end-to-end.
+
+2. **Request JSON shape verification** — Use a capturing variant of `MockTransport` to capture the `Data` passed to `send()`, parse it back as JSON, and verify it contains the correct `model`, `messages`, `system`, `maxTokens`, `temperature` fields.
+
+3. **Malformed SSE surfaces `JuliusError.responseParsingFailed`** — `MockTransport` yields garbage data (not valid SSE JSON). Provider parses it and throws `responseParsingFailed`.
+
+Cancel wiring is implicitly tested in test 1 (`ResponseStream.cancel` is non-nil and callable).
 
 ## Acceptance criteria
 - [ ] `mise run build` passes

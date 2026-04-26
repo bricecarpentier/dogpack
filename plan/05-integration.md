@@ -26,6 +26,19 @@
 9. Verify session contains both user and assistant messages
 10. Verify `AssistantMessage.content` and `stopReason` match canned response
 
+## Implementation
+
+### Test strategy
+One integration test: **full user-turn cycle through all layers**.
+1. Append `.user("hello")` to `InMemorySession`
+2. Create `OpenAIProvider` with `MockTransport` (canned SSE response)
+3. Read session history, build `ProviderRequest`, call `provider.send()`
+4. Accumulate `ProviderEvent`s into an `AssistantMessage`
+5. Append it to session
+6. Verify session has 2 messages, content and stop reason match
+
+This is the capstone test — depends on units 03 and 04 being complete.
+
 ## Acceptance criteria
 - [ ] `mise run build` passes
 - [ ] Full turn cycle completes without error

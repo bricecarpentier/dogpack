@@ -1,6 +1,6 @@
 # 03 — Session Protocol + InMemorySession
 
-## Status: not started
+## Status: done
 
 ## Depends on
 01 (core types: `Message`, `AssistantMessage`)
@@ -29,6 +29,15 @@ protocol Session: Sendable {
 - Internal `[Message]` array
 - `messages()` returns a copy
 - `append()` appends to array
+
+## Implementation
+
+### Test strategy
+Single integration test: **concurrent append-then-read workflow**.
+- Create `InMemorySession`, verify `messages()` returns `[]`
+- Append a `.user("hello")` and a `.assistant(...)` concurrently from two `Task`s
+- After both complete, verify `messages()` returns both in FIFO order
+- Concurrent append + read exercises the actor isolation boundary as a real synchronization point
 
 ## Acceptance criteria
 - [ ] `mise run build` passes
