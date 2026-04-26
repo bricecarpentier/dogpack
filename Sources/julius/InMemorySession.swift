@@ -1,13 +1,15 @@
 import Foundation
 
-actor InMemorySession: Session {
+public actor InMemorySession: Session {
     private var store: [Message] = []
 
-    func messages() -> [Message] {
+    public init() {}
+
+    public func messages() -> [Message] {
         store
     }
 
-    func append(_ message: Message) {
+    public func append(_ message: Message) {
         store.append(message)
     }
 }

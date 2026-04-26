@@ -1,6 +1,6 @@
 import Foundation
 
-protocol Session: Sendable {
+public protocol Session: Sendable {
     func messages() async -> [Message]
     func append(_ message: Message) async throws
 }

@@ -1,8 +1,8 @@
 import Foundation
 
-typealias StopCondition = @Sendable (Session) async -> Bool
+public typealias StopCondition = @Sendable (Session) async -> Bool
 
-struct Loop {
+public struct Loop: Sendable {
     private let provider: Provider
     private let session: Session
     private let model: String
@@ -11,7 +11,7 @@ struct Loop {
     private let temperature: Double?
     private let stopCondition: StopCondition
 
-    init(
+    public init(
         provider: Provider,
         session: Session,
         model: String,
@@ -29,7 +29,7 @@ struct Loop {
         self.stopCondition = stopCondition
     }
 
-    func run() async throws -> AssistantMessage {
+    public func run() async throws -> AssistantMessage {
         while true {
             try Task.checkCancellation()
 

@@ -1,12 +1,16 @@
 import Foundation
 
-struct OpenAIConfiguration {
-    var reasoningEffort: String?
+public struct OpenAIConfiguration: Sendable {
+    public var reasoningEffort: String?
+
+    public init(reasoningEffort: String? = nil) {
+        self.reasoningEffort = reasoningEffort
+    }
 }
 
-typealias TransportFactory = @Sendable (URL, String?) -> Transport
+public typealias TransportFactory = @Sendable (URL, String?) -> Transport
 
-final class OpenAIProvider: Provider, @unchecked Sendable {
+final public class OpenAIProvider: Provider, @unchecked Sendable {
     static let endpoint = "/chat/completions"
 
     private let baseURL: URL
@@ -14,7 +18,7 @@ final class OpenAIProvider: Provider, @unchecked Sendable {
     private let makeTransport: TransportFactory
     private let configuration: OpenAIConfiguration
 
-    init(
+    public init(
         baseURL: URL,
         apiKey: String? = nil,
         configuration: OpenAIConfiguration = OpenAIConfiguration(),
@@ -28,7 +32,7 @@ final class OpenAIProvider: Provider, @unchecked Sendable {
         self.makeTransport = makeTransport
     }
 
-    func send(_ request: ProviderRequest) async throws -> ResponseStream {
+    public func send(_ request: ProviderRequest) async throws -> ResponseStream {
         let fullURL = baseURL.appendingPathComponent(Self.endpoint)
         let transport = makeTransport(fullURL, apiKey)
         let data = try serializeRequest(request)

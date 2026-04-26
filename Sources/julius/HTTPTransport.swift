@@ -1,21 +1,21 @@
 import Foundation
 
-final class HTTPTransport: Transport, @unchecked Sendable {
+public final class HTTPTransport: Transport, @unchecked Sendable {
     private let url: URL
     private let session: URLSession
     private let apiKey: String?
 
-    init(url: URL, apiKey: String? = nil, session: URLSession = .shared) {
+    public init(url: URL, apiKey: String? = nil, session: URLSession = .shared) {
         self.url = url
         self.apiKey = apiKey
         self.session = session
     }
 
-    func connect() async throws {
+    public func connect() async throws {
         // HTTP is stateless — no-op
     }
 
-    func send(_ data: Data) async throws -> InFlight {
+    public func send(_ data: Data) async throws -> InFlight {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.httpBody = data
@@ -88,7 +88,7 @@ final class HTTPTransport: Transport, @unchecked Sendable {
         )
     }
 
-    func disconnect() async {
+    public func disconnect() async {
         // HTTP is stateless — no-op
     }
 }

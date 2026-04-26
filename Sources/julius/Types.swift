@@ -14,58 +14,58 @@ indirect enum JSONValue: Equatable {
 
 // MARK: - Content
 
-enum ContentBlock: Equatable {
+public enum ContentBlock: Equatable, Sendable {
     case text(String)
     case reasoning(String)
 }
 
 // MARK: - Messages
 
-enum StopReason: Equatable {
+public enum StopReason: Equatable, Sendable {
     case stop
     case length
     case contentFilter
 }
 
-struct AssistantMessage: Equatable {
-    var content: [ContentBlock]
-    var stopReason: StopReason
+public struct AssistantMessage: Equatable, Sendable {
+    public var content: [ContentBlock]
+    public var stopReason: StopReason
 }
 
-enum Message: Equatable {
+public enum Message: Equatable, Sendable {
     case user(String)
     case assistant(AssistantMessage)
 }
 
 // MARK: - Provider
 
-enum ProviderEvent: Equatable {
+public enum ProviderEvent: Equatable, Sendable {
     case reasoningDelta(String)
     case textDelta(String)
     case done(StopReason)
 }
 
-struct ProviderRequest: Equatable {
-    var model: String
-    var system: String?
-    var messages: [Message]
-    var maxTokens: Int
-    var temperature: Double?
+public struct ProviderRequest: Equatable {
+    public var model: String
+    public var system: String?
+    public var messages: [Message]
+    public var maxTokens: Int
+    public var temperature: Double?
 }
 
-struct ResponseStream {
-    let events: AsyncThrowingStream<ProviderEvent, Error>
-    let cancel: @Sendable () async -> Void
+public struct ResponseStream: Sendable {
+    public let events: AsyncThrowingStream<ProviderEvent, Error>
+    public let cancel: @Sendable () async -> Void
 }
 
-struct InFlight {
-    let events: AsyncThrowingStream<Data, Error>
-    let cancel: @Sendable () async -> Void
+public struct InFlight: Sendable {
+    public let events: AsyncThrowingStream<Data, Error>
+    public let cancel: @Sendable () async -> Void
 }
 
 // MARK: - Errors
 
-enum JuliusError: Error {
+public enum JuliusError: Error, Sendable {
     case connectionFailed(String)
     case requestSerializationFailed(String)
     case responseParsingFailed(String)
