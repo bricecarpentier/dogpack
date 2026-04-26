@@ -5,9 +5,14 @@ import PackageDescription
 let package = Package(
     name: "Dogpack",
     platforms: [.macOS(.v13)],
+    products: [
+        .library(name: "julius", targets: ["julius"]),
+    ],
     targets: [
+        .target(name: "julius"),
         .executableTarget(name: "dogpack"),
         .testTarget(name: "dogpackTests", dependencies: ["dogpack"]),
+        .testTarget(name: "juliusTests", dependencies: ["julius"]),
         .plugin(
             name: "FormatSwift",
             capability: .command(

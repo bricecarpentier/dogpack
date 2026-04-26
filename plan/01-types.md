@@ -1,6 +1,6 @@
 # 01 — Core Types + Package Setup
 
-## Status: not started
+## Status: done
 
 ## Depends on
 Nothing.
