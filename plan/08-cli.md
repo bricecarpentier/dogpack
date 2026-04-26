@@ -1,6 +1,6 @@
 # 08 — CLI Test Client (dogpack)
 
-## Status: not started
+## Status: done
 
 ## Depends on
 06 (Provider Endpoint Path), 07 (Loop)

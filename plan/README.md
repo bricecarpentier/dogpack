@@ -9,6 +9,6 @@
 | 05 | Integration Test | done | 01, 02, 03, 04 |
 | 06 | Provider Endpoint Path | done | 04 |
 | 07 | Loop (ReAct Loop) | done | 01, 02, 03, 04 |
-| 08 | CLI Test Client | not started | 06, 07 |
+| 08 | CLI Test Client | done | 06, 07 |
 
 Status: `not started` | `in progress` | `done`

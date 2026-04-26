@@ -10,7 +10,7 @@ let package = Package(
     ],
     targets: [
         .target(name: "julius"),
-        .executableTarget(name: "dogpack"),
+        .executableTarget(name: "dogpack", dependencies: ["julius"]),
         .testTarget(name: "dogpackTests", dependencies: ["dogpack"]),
         .testTarget(name: "juliusTests", dependencies: ["julius"]),
         .plugin(
