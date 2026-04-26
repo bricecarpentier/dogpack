@@ -2,6 +2,7 @@
 
 - Read `README.md` for project context and contribution conventions.
 - Run `mise run build` before completing any task that modifies Swift source files. This ensures formatting and linting pass.
+- Run `mise run test` before completing any task. Extra arguments pass through to `swift test` (e.g. `mise run test --filter juliusTests`).
 - Run `mise fmt` after modifying `mise.toml`.
 - Commit trailers must follow this order and format:
   - `Assisted-by: Mistral-Vibe:MODEL_VERSION` — AI attribution.

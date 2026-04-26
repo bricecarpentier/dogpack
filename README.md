@@ -13,7 +13,14 @@ mise run dev      # build and run (quick iteration)
 
 Commits should follow the [Conventional Commits](https://www.conventionalcommits.org/) specification.
 
-Code is automatically formatted and linted before every build. You can also run them directly:
+All contributions must pass both build and tests:
+
+```
+mise run build    # must exit successfully
+mise run test     # must exit successfully
+```
+
+Code is automatically formatted and linted as part of `mise run build`. You can also run them directly:
 
 ```
 mise run format   # format with swiftformat
