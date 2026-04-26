@@ -10,5 +10,6 @@
 | 06 | Provider Endpoint Path | done | 04 |
 | 07 | Loop (ReAct Loop) | done | 01, 02, 03, 04 |
 | 08 | CLI Test Client | done | 06, 07 |
+| 09 | Streaming Display | not started | 07 |
 
 Status: `not started` | `in progress` | `done`
