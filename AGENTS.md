@@ -2,6 +2,7 @@
 
 - Read `README.md` for project context and contribution conventions.
 - Run `mise run build` before completing any task that modifies Swift source files. This ensures formatting and linting pass.
+- Run `mise fmt` after modifying `mise.toml`.
 - Commit trailers must follow this order and format:
   - `Assisted-by: Mistral-Vibe:MODEL_VERSION` — AI attribution.
   - `Co-Authored-By: Mistral Vibe <vibe@mistral.ai>` — co-authorship credit.
