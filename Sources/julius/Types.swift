@@ -39,7 +39,7 @@ enum Message: Equatable {
 
 // MARK: - Provider
 
-enum ProviderEvent {
+enum ProviderEvent: Equatable {
     case reasoningDelta(String)
     case textDelta(String)
     case done(StopReason)

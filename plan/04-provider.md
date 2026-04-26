@@ -1,6 +1,6 @@
 # 04 — Provider Protocol + OpenAIProvider
 
-## Status: not started
+## Status: done
 
 ## Depends on
 01 (core types), 02 (Transport + MockTransport)

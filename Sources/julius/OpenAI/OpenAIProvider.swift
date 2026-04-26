@@ -1,0 +1,138 @@
+import Foundation
+
+struct OpenAIConfiguration {
+    var reasoningEffort: String?
+}
+
+final class OpenAIProvider: Provider, @unchecked Sendable {
+    private let transport: Transport
+    private let configuration: OpenAIConfiguration
+
+    init(transport: Transport, configuration: OpenAIConfiguration = OpenAIConfiguration()) {
+        self.transport = transport
+        self.configuration = configuration
+    }
+
+    func send(_ request: ProviderRequest) async throws -> ResponseStream {
+        let data = try serializeRequest(request)
+        let inFlight = try await transport.send(data)
+        return mapToProviderEvents(inFlight: inFlight)
+    }
+
+    // MARK: - Request Serialization
+
+    private func serializeRequest(_ request: ProviderRequest) throws -> Data {
+        var body: [String: Any] = try [
+            "model": request.model,
+            "messages": request.messages.map(serializeMessage),
+            "max_tokens": request.maxTokens,
+            "stream": true,
+        ]
+
+        if let system = request.system {
+            body["system"] = system
+        }
+        if let temperature = request.temperature {
+            body["temperature"] = temperature
+        }
+        if let effort = configuration.reasoningEffort {
+            body["reasoning_effort"] = effort
+        }
+
+        do {
+            return try JSONSerialization.data(withJSONObject: body)
+        } catch {
+            throw JuliusError.requestSerializationFailed(error.localizedDescription)
+        }
+    }
+
+    private func serializeMessage(_ message: Message) throws -> [String: Any] {
+        switch message {
+        case let .user(text):
+            return ["role": "user", "content": text]
+        case let .assistant(msg):
+            let content = msg.content.map { block -> [String: String] in
+                switch block {
+                case let .text(text):
+                    return ["type": "text", "text": text]
+                case let .reasoning(text):
+                    return ["type": "reasoning", "text": text]
+                }
+            }
+            return ["role": "assistant", "content": content]
+        }
+    }
+
+    // MARK: - SSE → ProviderEvent Parsing
+
+    private func mapToProviderEvents(inFlight: InFlight) -> ResponseStream {
+        let (stream, continuation) = AsyncThrowingStream<ProviderEvent, Error>.makeStream()
+
+        let task = Task {
+            do {
+                for try await data in inFlight.events {
+                    let events = try parseChunk(data)
+                    for event in events {
+                        continuation.yield(event)
+                    }
+                }
+                continuation.finish()
+            } catch {
+                continuation.finish(throwing: error)
+            }
+        }
+
+        return ResponseStream(
+            events: stream,
+            cancel: {
+                task.cancel()
+                await inFlight.cancel()
+            },
+        )
+    }
+
+    private func parseChunk(_ data: Data) throws -> [ProviderEvent] {
+        let json: Any
+        do {
+            json = try JSONSerialization.jsonObject(with: data)
+        } catch {
+            throw JuliusError.responseParsingFailed("Invalid JSON in response chunk: \(error.localizedDescription)")
+        }
+
+        guard let object = json as? [String: Any],
+              let choices = object["choices"] as? [[String: Any]],
+              let choice = choices.first
+        else {
+            throw JuliusError.responseParsingFailed("Missing 'choices' in response chunk")
+        }
+
+        var events: [ProviderEvent] = []
+
+        if let delta = choice["delta"] as? [String: Any] {
+            // Content delta
+            if let content = delta["content"] as? String, !content.isEmpty {
+                events.append(.textDelta(content))
+            }
+            // Reasoning delta
+            if let reasoning = delta["reasoning_content"] as? String, !reasoning.isEmpty {
+                events.append(.reasoningDelta(reasoning))
+            }
+        }
+
+        // Finish reason
+        if let finishReason = choice["finish_reason"] as? String {
+            switch finishReason {
+            case "stop":
+                events.append(.done(.stop))
+            case "length":
+                events.append(.done(.length))
+            case "content_filter":
+                events.append(.done(.contentFilter))
+            default:
+                events.append(.done(.stop))
+            }
+        }
+
+        return events
+    }
+}
