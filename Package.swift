@@ -7,6 +7,7 @@ let package = Package(
     platforms: [.macOS(.v13)],
     targets: [
         .executableTarget(name: "dogpack"),
+        .testTarget(name: "dogpackTests", dependencies: ["dogpack"]),
         .plugin(
             name: "FormatSwift",
             capability: .command(
