@@ -70,4 +70,5 @@ enum JuliusError: Error {
     case requestSerializationFailed(String)
     case responseParsingFailed(String)
     case transportDisconnected
+    case cancelled
 }

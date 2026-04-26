@@ -55,6 +55,7 @@ final class OpenAIProvider: Provider, @unchecked Sendable {
         if let effort = configuration.reasoningEffort {
             body["reasoning_effort"] = effort
         }
+        body["tool_choice"] = "none"
 
         do {
             return try JSONSerialization.data(withJSONObject: body)
