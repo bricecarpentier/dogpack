@@ -3,9 +3,11 @@ import Foundation
 final class HTTPTransport: Transport, @unchecked Sendable {
     private let url: URL
     private let session: URLSession
+    private let apiKey: String?
 
-    init(url: URL, session: URLSession = .shared) {
+    init(url: URL, apiKey: String? = nil, session: URLSession = .shared) {
         self.url = url
+        self.apiKey = apiKey
         self.session = session
     }
 
@@ -18,6 +20,9 @@ final class HTTPTransport: Transport, @unchecked Sendable {
         request.httpMethod = "POST"
         request.httpBody = data
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let apiKey {
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        }
 
         let (bytes, response): (URLSession.AsyncBytes, URLResponse)
         do {
