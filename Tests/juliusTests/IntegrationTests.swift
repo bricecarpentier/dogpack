@@ -44,7 +44,10 @@ struct IntegrationTests {
             chatChunk(finishReason: "stop"),
         ])
 
-        let provider = OpenAIProvider(transport: transport)
+        let provider = try OpenAIProvider(
+            baseURL: #require(URL(string: "https://api.openai.com/v1")),
+            makeTransport: { _, _ in transport },
+        )
         let history = await session.messages()
         let request = ProviderRequest(
             model: "gpt-4o",

@@ -1,6 +1,6 @@
 # 06 — Provider Endpoint Path
 
-## Status: not started
+## Status: done
 
 ## Depends on
 04 (OpenAIProvider)

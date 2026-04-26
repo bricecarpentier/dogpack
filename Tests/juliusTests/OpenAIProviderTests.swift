@@ -45,7 +45,10 @@ struct OpenAIProviderTests {
             chatChunk(finishReason: "stop"),
         ])
 
-        let provider = OpenAIProvider(transport: transport)
+        let provider = try OpenAIProvider(
+            baseURL: #require(URL(string: "https://api.openai.com/v1")),
+            makeTransport: { _, _ in transport },
+        )
         let request = ProviderRequest(
             model: "gpt-4o",
             system: "You are helpful.",
@@ -79,7 +82,10 @@ struct OpenAIProviderTests {
             chatChunk(finishReason: "stop"),
         ])
 
-        let provider = OpenAIProvider(transport: transport)
+        let provider = try OpenAIProvider(
+            baseURL: #require(URL(string: "https://api.openai.com/v1")),
+            makeTransport: { _, _ in transport },
+        )
         let request = ProviderRequest(
             model: "gpt-4o-mini",
             system: "Be concise.",
@@ -118,11 +124,14 @@ struct OpenAIProviderTests {
 
     /// Malformed response data surfaces as JuliusError.responseParsingFailed.
     @Test
-    func `malformed response surfaces parsing error`() async {
+    func `malformed response surfaces parsing error`() async throws {
         let garbage = Data("this is not valid json".utf8)
         let transport = MockTransport(cannedData: garbage)
 
-        let provider = OpenAIProvider(transport: transport)
+        let provider = try OpenAIProvider(
+            baseURL: #require(URL(string: "https://api.openai.com/v1")),
+            makeTransport: { _, _ in transport },
+        )
         let request = ProviderRequest(
             model: "gpt-4o",
             messages: [.user("test")],
@@ -143,4 +152,61 @@ struct OpenAIProviderTests {
             Issue.record("Unexpected error type: \(error)")
         }
     }
+
+    /// Provider constructs correct full URL (base + endpoint) and passes it to the factory.
+    @Test
+    func `url construction`() async throws {
+        let captured = Box<URL>()
+        let transport = MockTransport(
+            cannedChunks: [chatChunk(finishReason: "stop")],
+        ) { _ in }
+
+        let provider = try OpenAIProvider(
+            baseURL: #require(URL(string: "https://api.openai.com/v1")),
+            makeTransport: { url, _ in
+                captured.value = url
+                return transport
+            },
+        )
+
+        _ = try await provider.send(ProviderRequest(
+            model: "gpt-4o",
+            messages: [.user("hi")],
+            maxTokens: 10,
+        ))
+
+        let url = try #require(captured.value)
+        #expect(url.absoluteString == "https://api.openai.com/v1/chat/completions")
+    }
+
+    /// API key is forwarded to the transport factory.
+    @Test
+    func `api key forwarded to factory`() async throws {
+        let captured = Box<String?>()
+        let transport = MockTransport(
+            cannedChunks: [chatChunk(finishReason: "stop")],
+        ) { _ in }
+
+        let provider = try OpenAIProvider(
+            baseURL: #require(URL(string: "https://api.openai.com/v1")),
+            apiKey: "sk-test-key-123",
+            makeTransport: { _, key in
+                captured.value = key
+                return transport
+            },
+        )
+
+        _ = try await provider.send(ProviderRequest(
+            model: "gpt-4o",
+            messages: [.user("hi")],
+            maxTokens: 10,
+        ))
+
+        #expect(captured.value == "sk-test-key-123")
+    }
+}
+
+/// Thread-safe box for capturing values from Sendable closures.
+private final class Box<T>: @unchecked Sendable {
+    var value: T?
 }

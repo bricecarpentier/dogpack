@@ -4,16 +4,33 @@ struct OpenAIConfiguration {
     var reasoningEffort: String?
 }
 
+typealias TransportFactory = @Sendable (URL, String?) -> Transport
+
 final class OpenAIProvider: Provider, @unchecked Sendable {
-    private let transport: Transport
+    static let endpoint = "/chat/completions"
+
+    private let baseURL: URL
+    private let apiKey: String?
+    private let makeTransport: TransportFactory
     private let configuration: OpenAIConfiguration
 
-    init(transport: Transport, configuration: OpenAIConfiguration = OpenAIConfiguration()) {
-        self.transport = transport
+    init(
+        baseURL: URL,
+        apiKey: String? = nil,
+        configuration: OpenAIConfiguration = OpenAIConfiguration(),
+        makeTransport: @escaping TransportFactory = { url, key in
+            HTTPTransport(url: url, apiKey: key)
+        },
+    ) {
+        self.baseURL = baseURL
+        self.apiKey = apiKey
         self.configuration = configuration
+        self.makeTransport = makeTransport
     }
 
     func send(_ request: ProviderRequest) async throws -> ResponseStream {
+        let fullURL = baseURL.appendingPathComponent(Self.endpoint)
+        let transport = makeTransport(fullURL, apiKey)
         let data = try serializeRequest(request)
         let inFlight = try await transport.send(data)
         return mapToProviderEvents(inFlight: inFlight)
