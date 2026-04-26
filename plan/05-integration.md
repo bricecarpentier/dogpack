@@ -1,6 +1,6 @@
 # 05 — Integration Test
 
-## Status: not started
+## Status: done
 
 ## Depends on
 01, 02, 03, 04
