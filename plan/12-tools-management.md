@@ -6,17 +6,20 @@
 07 (Loop)
 
 ## Problem
-julius has no tool support. The ReAct loop only handles text responses, tool-related enum cases are placeholder comments, and `OpenAIProvider` hardcodes `"tool_choice": "none"`. Agents cannot invoke tools through the library.
+julius has no tool support. The loop only handles text responses, tool-related types don't exist, and `OpenAIProvider` hardcodes `"tool_choice": "none"`. Agents cannot invoke tools through the library.
 
 ## Scope
-Add tool types, provider serialization of tool definitions in requests, SSE parsing of tool call events, and loop support for surfacing tool calls to the caller. Julius does **not** execute tools — that is an agent-layer concern. Julius provides the data pipeline: definitions → request → SSE → tool calls → results back into history.
+Add tool types, provider serialization of tool definitions in requests, SSE parsing of tool call events, loop support for surfacing tool calls to the caller, and basic CLI support for demonstrating the pipeline end-to-end.
+
+Julius does **not** execute tools — that is an agent-layer concern. Julius provides the data pipeline: definitions -> request -> SSE -> tool calls -> results back into history.
 
 ## Files
 | File | Action |
 |------|--------|
-| `Sources/julius/Types.swift` | Modify — add `ToolDefinition`, `ToolCall`, `ToolResult`, `ToolChoice`; extend `ContentBlock`, `Message`, `StopReason`, `ProviderEvent`, `ProviderRequest` |
+| `Sources/julius/Types.swift` | Modify — add `ToolDefinition`, `ToolCall`, `ToolResult`, `ToolChoice`; extend `ContentBlock`, `Message`, `StopReason`, `ProviderEvent`, `ProviderRequest`, `LoopEvent` |
 | `Sources/julius/OpenAI/OpenAIProvider.swift` | Modify — serialize `tools`/`tool_choice`, parse tool call SSE events |
-| `Sources/julius/Loop.swift` | Modify — accept `tools` array, stop on `.toolUse` and return `AssistantMessage` |
+| `Sources/julius/Loop.swift` | Modify — accept `tools` array, yield tool call events, complete on `.toolUse` |
+| `Sources/dogpack/main.swift` | Modify — add built-in demo tools, handle tool call + result cycle in REPL |
 | `Tests/juliusTests/OpenAIProviderTests.swift` | Modify — add tool serialization + parsing tests |
 | `Tests/juliusTests/LoopTests.swift` | Modify — add tool-related loop tests |
 | `Tests/juliusTests/IntegrationTests.swift` | Modify — add end-to-end tool cycle test |
@@ -31,12 +34,12 @@ Julius is a harness library for communicating with LLM providers. Tool execution
 - Types: `ToolDefinition`, `ToolCall`, `ToolResult`, `ToolChoice`
 - Provider serialization of tool definitions and tool results into requests
 - SSE parsing of tool call deltas into complete `ToolCall` events
-- Loop: includes `tools` in requests, stops on `.toolUse`, returns `AssistantMessage` with `ToolCall`s in `content`
+- Loop: includes `tools` in requests, yields tool call events via `LoopEvent`, completes on `.toolUse`
 
-**Agent owns:**
+**Agent (or CLI) owns:**
 - Which tools to offer (passes `[ToolDefinition]` to the loop)
-- Executing tool calls (extracted from `AssistantMessage.content`)
-- Feeding results back (appends `.toolResult` to session, calls loop again)
+- Executing tool calls (extracted from the `LoopEvent` stream)
+- Feeding results back (appends `.toolResult` to session, calls `loop.run()` again)
 - Typed wrappers, approval gates, logging, retry logic
 
 **Caller pattern:**
@@ -46,15 +49,18 @@ let loop = Loop(provider: provider, session: session, model: "gpt-4o",
                 maxTokens: 256, tools: tools)
 
 while true {
-    let message = try await loop.run()
-    if message.stopReason == .stop { return message }
-    // Agent extracts and executes tool calls
-    let calls = message.content.compactMap {
-        if case .toolUse(let c) = $0 { return c } else { return nil }
-    }
-    for call in calls {
-        let result = try await myAgentRegistry.execute(call)
-        try await session.append(.toolResult(result))
+    for try await event in loop.run() {
+        switch event {
+        case let .delta(.toolCall(call)):
+            // Execute and append result
+            let result = try await execute(call)
+            try await session.append(.toolResult(result))
+        case let .delta(.textDelta(text)):
+            print(text, terminator: "")
+        case let .complete(message):
+            if message.stopReason == .stop { return message }
+        default: break
+        }
     }
 }
 ```
@@ -160,6 +166,16 @@ public struct ProviderRequest: Equatable {
 }
 ```
 
+Update `LoopEvent` to carry tool call info:
+
+```swift
+public enum LoopEvent: Equatable, Sendable {
+    case delta(ProviderEvent)
+    case complete(AssistantMessage)
+    case toolCalls([ToolCall])        // NEW — emitted when stopReason is .toolUse, before .complete
+}
+```
+
 **Why this shape:**
 - `ToolCall.arguments` is a raw `String` — models don't always produce valid JSON; tool implementations handle parsing (matches DESIGN.md decisions log).
 - `ToolResult.output` is a raw `String` — tool implementations decide format.
@@ -167,12 +183,13 @@ public struct ProviderRequest: Equatable {
 - `ToolChoice` is its own enum — clean mapping to OpenAI's `tool_choice` field values.
 - `ProviderEvent.toolCall(ToolCall)` only fires when complete — no partial tool calls leak to callers.
 - `Message.toolResult(ToolResult)` is a top-level message case — tool results are sent as separate messages in the conversation (matches OpenAI's `role: "tool"` messages).
+- `LoopEvent.toolCalls([ToolCall])` gives the caller all tool calls at once, extracted from `AssistantMessage.content`. The `.complete` event follows immediately after.
 
 ### Step 2 — OpenAI provider serialization (`Sources/julius/OpenAI/OpenAIProvider.swift`)
 
 #### 2a. Request serialization — tools and tool_choice
 
-Current code (line ~82):
+Current code hardcodes:
 ```swift
 body["tool_choice"] = "none"
 ```
@@ -227,9 +244,9 @@ private func jsonify(_ value: JSONValue) -> Any {
 }
 ```
 
-#### 2b. Message serialization — tool results
+#### 2b. Message serialization — tool results and tool calls
 
-Current code (line ~96) handles `.user` and `.assistant`. Add `.toolResult`:
+Current code handles `.user` and `.assistant`. Add `.toolResult`:
 
 ```swift
 case let .toolResult(result):
@@ -240,7 +257,7 @@ case let .toolResult(result):
     ]
 ```
 
-Also extend `.assistant` to include `tool_calls` when content has `.toolUse` blocks:
+Extend `.assistant` to include `tool_calls` when content has `.toolUse` blocks:
 
 ```swift
 case let .assistant(msg):
@@ -273,11 +290,9 @@ case let .assistant(msg):
     return result
 ```
 
-**Why:** OpenAI requires assistant messages with tool calls to include the `tool_calls` array, and tool results as `role: "tool"` messages with matching `tool_call_id`.
-
 #### 2c. SSE parsing — tool call events
 
-OpenAI streams tool calls as delta chunks in the `choices[].delta` object:
+OpenAI streams tool calls as delta chunks in `choices[].delta.tool_calls[]`:
 
 ```json
 {
@@ -304,7 +319,6 @@ private func mapToProviderEvents(inFlight: InFlight) -> ResponseStream {
     let (stream, continuation) = AsyncThrowingStream<ProviderEvent, Error>.makeStream()
 
     let task = Task {
-        // Accumulation state for in-flight tool calls
         var pendingToolCalls: [Int: (id: String, name: String, arguments: String)] = [:]
 
         do {
@@ -337,7 +351,7 @@ private func mapToProviderEvents(inFlight: InFlight) -> ResponseStream {
 }
 ```
 
-Update `parseChunk` signature and add tool call delta parsing:
+Update `parseChunk` to accept `pendingToolCalls` inout parameter and handle tool call deltas:
 
 ```swift
 private func parseChunk(
@@ -346,7 +360,7 @@ private func parseChunk(
 ) throws -> [ProviderEvent] {
     // ... existing parsing (json, choices, delta) ...
 
-    // After existing content/reasoning delta parsing, add:
+    // After existing content/reasoning delta parsing:
     if let toolCallDeltas = delta["tool_calls"] as? [[String: Any]] {
         for tcDelta in toolCallDeltas {
             guard let index = tcDelta["index"] as? Int else { continue }
@@ -370,7 +384,6 @@ private func parseChunk(
         case "length": events.append(.done(.length))
         case "content_filter": events.append(.done(.contentFilter))
         case "tool_calls":
-            // Emit completed tool calls before done event
             for (_, pending) in pendingToolCalls.sorted(by: { $0.key < $1.key }) {
                 events.append(.toolCall(ToolCall(
                     id: pending.id,
@@ -389,8 +402,6 @@ private func parseChunk(
 ```
 
 **Important:** `pendingToolCalls` is local to the `mapToProviderEvents` Task — no mutable state leaks outside. The method signature changes from `parseChunk(_:)` to `parseChunk(_:pendingToolCalls:)` with an `inout` parameter.
-
-**Edge case — multiple tool calls in one response:** OpenAI uses the `index` field to distinguish concurrent tool calls. The dictionary accumulation handles this naturally.
 
 ### Step 3 — Loop changes (`Sources/julius/Loop.swift`)
 
@@ -416,7 +427,7 @@ public struct Loop: Sendable {
         maxTokens: Int,
         temperature: Double? = nil,
         stopCondition: @escaping StopCondition = { _ in false },
-        tools: [ToolDefinition]? = nil,          // NEW — default nil preserves existing behavior
+        tools: [ToolDefinition]? = nil,          // NEW
         toolChoice: ToolChoice? = nil,           // NEW
     ) {
         // ... existing assignments ...
@@ -426,89 +437,159 @@ public struct Loop: Sendable {
 }
 ```
 
-#### 3b. Loop body — include tools in request
+#### 3b. Build request — include tools
 
-In `run()`, pass tools into the request:
+In `buildRequest()`, pass tools into the request:
 
 ```swift
-let request = ProviderRequest(
-    model: model,
-    system: system,
-    messages: history,
-    maxTokens: maxTokens,
-    temperature: temperature,
-    tools: tools,           // NEW
-    toolChoice: toolChoice,  // NEW
-)
+private func buildRequest() async throws -> ProviderRequest {
+    let history = await session.messages()
+    return ProviderRequest(
+        model: model,
+        system: system,
+        messages: history,
+        maxTokens: maxTokens,
+        temperature: temperature,
+        tools: tools,           // NEW
+        toolChoice: toolChoice,  // NEW
+    )
+}
 ```
 
-#### 3c. Loop body — return on toolUse
+#### 3c. Process stream — handle tool call events
 
-The loop currently only returns on `.stop`. After the existing stop check, add:
+In `processStream()`, add handling for `.toolCall` provider events:
+
+```swift
+case let .toolCall(call):
+    // Flush any pending text/reasoning before tool call
+    if !currentReasoning.isEmpty {
+        contentBlocks.append(.reasoning(currentReasoning))
+        currentReasoning = ""
+    }
+    if !currentText.isEmpty {
+        contentBlocks.append(.text(currentText))
+        currentText = ""
+    }
+    contentBlocks.append(.toolUse(call))
+    continuation.yield(.delta(.toolCall(call)))
+```
+
+#### 3d. Loop body — yield toolCalls event and complete on .toolUse
+
+In `run()`, after `session.append(.assistant(message))`, handle the `.toolUse` stop reason:
 
 ```swift
 if message.stopReason == .toolUse {
-    return message    // Surface to caller — agent handles execution
+    let calls = message.content.compactMap { block -> ToolCall? in
+        if case let .toolUse(call) = block { return call }
+        return nil
+    }
+    continuation.yield(.toolCalls(calls))
+    continuation.yield(.complete(message))
+    continuation.finish()
+    return
 }
 ```
 
-The existing `if message.stopReason == .stop { return message }` and `.length` continuation remain unchanged. The loop becomes:
+The loop becomes:
+1. Build request with tools -> send -> processStream (yields deltas including tool calls) -> append to session
+2. If `.stop` -> yield `.complete`, finish
+3. If `.toolUse` -> yield `.toolCalls` then `.complete`, finish
+4. If `.length` -> loop (continuation)
 
-1. Build request with tools → send → accumulate → append to session
-2. If `.stop` → return (done)
-3. If `.toolUse` → return (caller executes tools, appends results, calls `run()` again)
-4. If `.length` → loop (continuation)
+The caller handles the tool execution + re-invocation cycle.
 
-#### 3d. Loop body — update accumulate for tool calls
+### Step 4 — CLI demo tools (`Sources/dogpack/main.swift`)
 
-The `accumulate()` method already iterates `ProviderEvent`s. Add a case for `.toolCall`:
+Add a small built-in tool set to demonstrate the pipeline. The CLI acts as the tool executor with hardcoded responses.
+
+#### 4a. Built-in tool definitions
 
 ```swift
-private func accumulate(_ responseStream: ResponseStream) async throws -> AssistantMessage {
-    var contentBlocks: [ContentBlock] = []
-    var currentText = ""
-    var currentReasoning = ""
-    var stopReason: StopReason = .stop
+let builtinTools: [ToolDefinition] = [
+    ToolDefinition(
+        name: "get_weather",
+        description: "Get the current weather for a city",
+        inputSchema: .object([
+            "type": .string("object"),
+            "properties": .object([
+                "city": .object([
+                    "type": .string("string"),
+                    "description": .string("City name"),
+                ]),
+            ]),
+            "required": .array([.string("city")]),
+        ]),
+    ),
+]
+```
 
-    for try await event in responseStream.events {
+#### 4b. Built-in tool executor
+
+```swift
+func executeBuiltinTool(_ call: ToolCall) -> ToolResult {
+    switch call.name {
+    case "get_weather":
+        return ToolResult(callId: call.id, output: "22°C, sunny")
+    default:
+        return ToolResult(callId: call.id, output: "Unknown tool")
+    }
+}
+```
+
+#### 4c. Display — handle tool calls in the stream
+
+Extend `displayStream` to show tool calls and tool results:
+
+```swift
+case let .delta(.toolCall(call)):
+    print("\n[tool call: \(call.name)(\(call.arguments))]")
+```
+
+#### 4d. REPL — tool execution loop
+
+The REPL wraps the loop in an outer loop that handles tool call cycles:
+
+```swift
+// After consuming the stream, check if we need to execute tools
+while true {
+    var toolCalls: [ToolCall] = []
+    var finalMessage: AssistantMessage?
+
+    for try await event in loop.run() {
         switch event {
-        case let .textDelta(text):
-            currentText += text
-        case let .reasoningDelta(text):
-            currentReasoning += text
-        case let .toolCall(call):
-            // Flush any pending text/reasoning before tool call
-            if !currentReasoning.isEmpty {
-                contentBlocks.append(.reasoning(currentReasoning))
-                currentReasoning = ""
-            }
-            if !currentText.isEmpty {
-                contentBlocks.append(.text(currentText))
-                currentText = ""
-            }
-            contentBlocks.append(.toolUse(call))
-        case let .done(reason):
-            if !currentReasoning.isEmpty {
-                contentBlocks.append(.reasoning(currentReasoning))
-                currentReasoning = ""
-            }
-            if !currentText.isEmpty {
-                contentBlocks.append(.text(currentText))
-                currentText = ""
-            }
-            stopReason = reason
+        case let .delta(.textDelta(text)):
+            print(text, terminator: "")
+            fflush(stdout)
+        case let .delta(.reasoningDelta(text)):
+            // ... existing reasoning display ...
+        case let .delta(.toolCall(call)):
+            print("\n[tool call: \(call.name)(\(call.arguments))]")
+        case let .toolCalls(calls):
+            toolCalls = calls
+        case let .complete(message):
+            finalMessage = message
+        case .delta(.done):
+            print()
         }
     }
 
-    return AssistantMessage(content: contentBlocks, stopReason: stopReason)
+    // If no tool calls, we're done
+    guard !toolCalls.isEmpty else { break }
+
+    // Execute and feed results back
+    for call in toolCalls {
+        let result = executeBuiltinTool(call)
+        print("[tool result: \(result.output)]")
+        try await session.append(.toolResult(result))
+    }
 }
 ```
 
-**Event ordering guarantee:** The provider emits `.toolCall(ToolCall)` events before `.done(.toolUse)`, so `accumulate()` always sees complete tool calls before the stop reason.
+### Step 5 — Tests
 
-### Step 4 — Tests
-
-#### 4a. OpenAI provider tests
+#### 5a. OpenAI provider tests
 
 Add SSE chunk helper for tool call deltas:
 
@@ -525,87 +606,65 @@ private func toolCallChunk(
 
 New test cases:
 
-```swift
-// Request with tools serializes tools[] and tool_choice correctly
-@Test func `request with tools serializes correctly`() async throws
+- Request with tools serializes tools[] and tool_choice correctly
+- Multi-chunk tool call SSE -> ProviderEvent.toolCall -> ProviderEvent.done(.toolUse)
+- Multiple concurrent tool calls via index field
+- Tool result message serializes as role: "tool" with tool_call_id
+- Assistant message with toolUse blocks serializes tool_calls array
 
-// Multi-chunk tool call SSE → ProviderEvent.toolCall → ProviderEvent.done(.toolUse)
-@Test func `tool call sse parsing`() async throws
-
-// Multiple concurrent tool calls via index field
-@Test func `multiple tool calls in one response`() async throws
-
-// Tool result message serializes as role: "tool" with tool_call_id
-@Test func `tool result message serialization`() async throws
-
-// Assistant message with toolUse blocks serializes tool_calls array
-@Test func `assistant with tool calls serialization`() async throws
-```
-
-#### 4b. Loop tests
+#### 5b. Loop tests
 
 New test cases:
 
-```swift
-// Loop with tools: provider returns toolUse → loop returns AssistantMessage with ToolCalls
-@Test func `tool use returns message with calls`() async throws
+- Loop with tools: provider returns toolUse -> loop yields .toolCalls then .complete
+- Loop with tools, provider returns stop immediately -> normal stream (no regressions)
+- Tool call events appear as .delta(.toolCall) during streaming
 
-// Loop without tools: still works exactly as before (no regressions)
-// (existing tests cover this)
+#### 5c. Integration tests
 
-// Loop with tools, provider returns stop immediately → normal return
-@Test func `tools present but no tool call`() async throws
-```
-
-#### 4c. Integration tests
-
-```swift
-// End-to-end: InMemorySession + OpenAIProvider (MockTransport) + Loop
-// Simulate: user asks question → model calls get_weather tool → loop returns →
-// caller executes tool, appends result → loop.run() again → model uses result → final answer
-@Test func `full tool use cycle`() async throws
-```
-
-This test simulates the agent-side tool execution loop:
+End-to-end test simulating the agent-side tool execution loop:
 1. Create session, append user message
 2. Create loop with tool definitions
-3. First `run()` → provider returns `.toolCall(get_weather)` + `.done(.toolUse)`
-4. Extract tool calls, "execute" them (hardcoded result), append `.toolResult`
-5. Second `run()` → provider returns text + `.done(.stop)`
+3. Consume first stream -> get .toolCalls(get_weather) + .complete
+4. Execute tool, append .toolResult to session
+5. Consume second stream -> get text + .complete(.stop)
 6. Verify session history: user, assistant(toolCall), toolResult, assistant(text)
 
 ### Implementation order
 
-1. **Types.swift** — all new types and enum extensions. Every `switch` on `ContentBlock`, `Message`, `StopReason`, `ProviderEvent` needs new cases. Audit all call sites:
-   - `Loop.accumulate()` — add `.toolCall` case
+1. **Types.swift** — all new types and enum extensions. Every `switch` on `ContentBlock`, `Message`, `StopReason`, `ProviderEvent`, `LoopEvent` needs new cases. Audit all call sites:
+   - `Loop.processStream()` — add `.toolCall` case
    - `OpenAIProvider.serializeMessage()` — add `.toolResult` case, extend `.assistant`
    - `OpenAIProvider.parseChunk()` — handle `"tool_calls"` finish reason
-   - Test helper `accumulateMessage()` in TypesTests — add `.toolCall` case
-   - Test helper `accumulate()` in IntegrationTests — add `.toolCall` case
+   - Test helpers that switch on `ProviderEvent` — add `.toolCall` case
 
 2. **OpenAIProvider.swift** — serialization and parsing changes. Depends on step 1 types.
 
-3. **Loop.swift** — tools parameter, return on `.toolUse`. Depends on step 1.
+3. **Loop.swift** — tools parameter, yield `.toolCalls` + `.complete` on `.toolUse`. Depends on step 1.
 
-4. **Tests** — can be written alongside each step. Run `mise run build` after each step to verify compilation. Run `mise run test` after step 3 to verify all tests.
+4. **main.swift** — built-in tools, tool execution in REPL. Depends on steps 1-3.
+
+5. **Tests** — can be written alongside each step. Run `mise run build` after each step. Run `mise run test` after step 4.
 
 ### Non-goals (deferred)
 
-- Tool execution, registry, or handlers — agent-layer concern
+- Tool execution, registry, or handlers in julius — agent-layer concern
 - Typed tool wrappers (Codable) — agent-layer concern
 - Tool call streaming deltas as public events — internal only, emitted as complete `.toolCall`
 - Tool approval/permission system — future feature
 - Retry logic for failed tool calls — caller/agent responsibility
 - Tool result content types (images, etc.) — raw string for now
+- More than a trivial demo tool in the CLI — real tools are an agent concern
 
 ## Acceptance criteria
 - [ ] `ToolDefinition`, `ToolCall`, `ToolResult`, `ToolChoice` types with `Equatable`/`Sendable`
-- [ ] `ContentBlock.toolUse`, `Message.toolResult`, `StopReason.toolUse`, `ProviderEvent.toolCall` added
+- [ ] `ContentBlock.toolUse`, `Message.toolResult`, `StopReason.toolUse`, `ProviderEvent.toolCall`, `LoopEvent.toolCalls` added
 - [ ] `ProviderRequest` accepts optional `tools` and `toolChoice`
 - [ ] `OpenAIProvider` serializes tools, tool_choice, and tool result messages correctly
 - [ ] `OpenAIProvider` parses tool call SSE delta chunks into `.toolCall` events
 - [ ] `Loop` accepts optional `tools` and `toolChoice`, includes them in requests
-- [ ] `Loop` returns `AssistantMessage` with `ToolCall`s in content when `stopReason == .toolUse`
-- [ ] `accumulate()` handles `.toolCall` events, flushing text/reasoning first
+- [ ] `Loop` yields `.toolCalls` and `.complete` when `stopReason == .toolUse`
+- [ ] `processStream()` handles `.toolCall` events, flushing text/reasoning first
+- [ ] CLI demonstrates tool call cycle with built-in `get_weather` tool
 - [ ] All existing tests pass unchanged (no regressions)
 - [ ] New tests: provider serialization/parsing, loop tool behavior, integration cycle
