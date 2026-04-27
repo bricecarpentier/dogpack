@@ -1,60 +1,29 @@
+import ArgumentParser
 import Foundation
 import julius
 
-// MARK: - CLI Parsing
+// MARK: - CLI Options
 
-struct CLIOptions {
+struct DogpackOptions: ParsableArguments {
+    @Option(help: "Provider base URL up to /v1 (e.g. https://api.openai.com/v1)")
     var url: String
+
+    @Option(help: "API key")
     var apiKey: String
+
+    @Option(help: "Model name (e.g. gpt-4o-mini)")
     var model: String
 }
 
-private func printUsage() {
-    let name = CommandLine.arguments.first ?? "dogpack"
-    print("Usage: \(name) --url <base-url> --api-key <key> --model <model>")
-    print()
-    print("Options:")
-    print("  --url      Provider base URL up to /v1 (e.g. https://api.openai.com/v1)")
-    print("  --api-key  API key")
-    print("  --model    Model name (e.g. gpt-4o-mini)")
-}
+let options = DogpackOptions.parseOrExit()
 
-private func parseArguments() -> CLIOptions? {
-    let args = Array(CommandLine.arguments.dropFirst())
-    var parsed: [String: String] = [:]
-    var idx = 0
-    while idx < args.count {
-        let arg = args[idx]
-        if arg.hasPrefix("--") {
-            let withoutPrefix = String(arg.dropFirst(2))
-            if let equalSign = withoutPrefix.firstIndex(of: "=") {
-                let key = String(withoutPrefix[..<equalSign])
-                let value = String(withoutPrefix[equalSign...].dropFirst())
-                parsed[key] = value
-                idx += 1
-            } else if idx + 1 < args.count {
-                parsed[withoutPrefix] = args[idx + 1]
-                idx += 2
-            } else {
-                idx += 1
-            }
-        } else {
-            idx += 1
-        }
-    }
-
-    guard let url = parsed["url"],
-          let apiKey = parsed["api-key"],
-          let model = parsed["model"]
-    else {
-        return nil
-    }
-    return CLIOptions(url: url, apiKey: apiKey, model: model)
+guard let baseURL = URL(string: options.url) else {
+    DogpackOptions.exit(withError: ValidationError("invalid URL '\(options.url)'"))
 }
 
 // MARK: - Output Formatting
 
-private func printContentBlock(_ block: ContentBlock) {
+func printContentBlock(_ block: ContentBlock) {
     switch block {
     case let .text(text):
         print(text)
@@ -68,18 +37,13 @@ private func printContentBlock(_ block: ContentBlock) {
 // MARK: - REPL
 
 @MainActor
-private func runREPL(options: CLIOptions) async {
-    guard let baseURL = URL(string: options.url) else {
-        print("Error: invalid URL '\(options.url)'")
-        exit(1)
-    }
-
-    let provider = OpenAIProvider(baseURL: baseURL, apiKey: options.apiKey)
+func runREPL(baseURL: URL, apiKey: String, model: String) async {
+    let provider = OpenAIProvider(baseURL: baseURL, apiKey: apiKey)
     let session = InMemorySession()
     let loop = Loop(
         provider: provider,
         session: session,
-        model: options.model,
+        model: model,
         maxTokens: 4096,
     )
 
@@ -120,18 +84,10 @@ private func runREPL(options: CLIOptions) async {
             } catch {
                 print("Error: \(error)")
             }
-            currentTask = nil
         }
 
         await currentTask?.value
     }
 }
 
-// MARK: - Entry Point
-
-if let options = parseArguments() {
-    await runREPL(options: options)
-} else {
-    printUsage()
-    exit(1)
-}
+await runREPL(baseURL: baseURL, apiKey: options.apiKey, model: options.model)

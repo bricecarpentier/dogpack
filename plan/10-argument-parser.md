@@ -1,6 +1,6 @@
 # 10 — ArgumentParser Refactor
 
-## Status: not started
+## Status: done
 
 ## Depends on
 08 (CLI Test Client)
@@ -86,11 +86,11 @@ on `Dogpack` replaces it.
 7. Resolve `swift-tools-version` if needed (ArgumentParser 1.5+ requires 5.9+; we're on 6.1)
 
 ## Acceptance criteria
-- [ ] `mise run build` passes
-- [ ] `mise run test` passes
-- [ ] `dogpack --help` prints ArgumentParser-generated usage with descriptions
-- [ ] Missing required option produces clear error with near-miss suggestions
-- [ ] `dogpack --url ... --api-key ... --model ...` runs the REPL as before
+- [x] `mise run build` passes
+- [x] `mise run test` passes
+- [x] `dogpack --help` prints ArgumentParser-generated usage with descriptions
+- [x] Missing required option produces clear error with near-miss suggestions
+- [x] `dogpack --url ... --api-key ... --model ...` runs the REPL as before
 
 ## Implementation plan
 
