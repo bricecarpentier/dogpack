@@ -13,6 +13,6 @@
 | 09 | feature | Streaming Display | done | 07 |
 | 10 | feature | ArgumentParser Refactor | done | 08 |
 | 11 | bug | Pass CLI args through `mise run dev` | done | — |
-| 12 | feature | Tools Management | not started | 07 |
+| 12 | feature | Tools Management | done | 07 |
 
 Status: `not started` | `in progress` | `done`

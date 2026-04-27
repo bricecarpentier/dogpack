@@ -1,6 +1,6 @@
 # 12 — Tools Management
 
-## Status: in progress
+## Status: done
 
 ## Depends on
 07 (Loop)
@@ -657,14 +657,14 @@ End-to-end test simulating the agent-side tool execution loop:
 - More than a trivial demo tool in the CLI — real tools are an agent concern
 
 ## Acceptance criteria
-- [ ] `ToolDefinition`, `ToolCall`, `ToolResult`, `ToolChoice` types with `Equatable`/`Sendable`
-- [ ] `ContentBlock.toolUse`, `Message.toolResult`, `StopReason.toolUse`, `ProviderEvent.toolCall`, `LoopEvent.toolCalls` added
-- [ ] `ProviderRequest` accepts optional `tools` and `toolChoice`
-- [ ] `OpenAIProvider` serializes tools, tool_choice, and tool result messages correctly
-- [ ] `OpenAIProvider` parses tool call SSE delta chunks into `.toolCall` events
-- [ ] `Loop` accepts optional `tools` and `toolChoice`, includes them in requests
-- [ ] `Loop` yields `.toolCalls` and `.complete` when `stopReason == .toolUse`
-- [ ] `processStream()` handles `.toolCall` events, flushing text/reasoning first
-- [ ] CLI demonstrates tool call cycle with built-in `get_weather` tool
-- [ ] All existing tests pass unchanged (no regressions)
-- [ ] New tests: provider serialization/parsing, loop tool behavior, integration cycle
+- [x] `ToolDefinition`, `ToolCall`, `ToolResult`, `ToolChoice` types with `Equatable`/`Sendable`
+- [x] `ContentBlock.toolUse`, `Message.toolResult`, `StopReason.toolUse`, `ProviderEvent.toolCall`, `LoopEvent.toolCalls` added
+- [x] `ProviderRequest` accepts optional `tools` and `toolChoice`
+- [x] `OpenAIProvider` serializes tools, tool_choice, and tool result messages correctly
+- [x] `OpenAIProvider` parses tool call SSE delta chunks into `.toolCall` events
+- [x] `Loop` accepts optional `tools` and `toolChoice`, includes them in requests
+- [x] `Loop` yields `.toolCalls` and `.complete` when `stopReason == .toolUse`
+- [x] `processStream()` handles `.toolCall` events, flushing text/reasoning first
+- [x] CLI demonstrates tool call cycle with built-in `get_weather` tool
+- [x] All existing tests pass unchanged (no regressions)
+- [x] New tests: provider serialization/parsing, loop tool behavior, integration cycle
