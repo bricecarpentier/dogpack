@@ -9,21 +9,55 @@
 julius has no tool support. The ReAct loop only handles text responses, tool-related enum cases are placeholder comments, and `OpenAIProvider` hardcodes `"tool_choice": "none"`. Agents cannot invoke tools through the library.
 
 ## Scope
-Add dynamic tool management to julius: tool definition with JSON Schema, closure-based registry, provider serialization of tools in requests, SSE parsing of tool call events, and loop dispatch of tool calls with result collection.
+Add tool types, provider serialization of tool definitions in requests, SSE parsing of tool call events, and loop support for surfacing tool calls to the caller. Julius does **not** execute tools — that is an agent-layer concern. Julius provides the data pipeline: definitions → request → SSE → tool calls → results back into history.
 
 ## Files
 | File | Action |
 |------|--------|
-| `Sources/julius/Types.swift` | Modify — add `ToolDefinition`, `ToolCall`, `ToolResult`; extend `ContentBlock`, `Message`, `StopReason`, `ProviderEvent`, `ProviderRequest` |
-| `Sources/julius/ToolRegistry.swift` | Create — `ToolRegistry` protocol + `InMemoryToolRegistry` actor |
+| `Sources/julius/Types.swift` | Modify — add `ToolDefinition`, `ToolCall`, `ToolResult`, `ToolChoice`; extend `ContentBlock`, `Message`, `StopReason`, `ProviderEvent`, `ProviderRequest` |
 | `Sources/julius/OpenAI/OpenAIProvider.swift` | Modify — serialize `tools`/`tool_choice`, parse tool call SSE events |
-| `Sources/julius/Loop.swift` | Modify — dispatch tool calls via registry, collect results, continue conversation |
-| `Tests/juliusTests/ToolRegistryTests.swift` | Create — integration tests for tool dispatch |
+| `Sources/julius/Loop.swift` | Modify — accept `tools` array, stop on `.toolUse` and return `AssistantMessage` |
 | `Tests/juliusTests/OpenAIProviderTests.swift` | Modify — add tool serialization + parsing tests |
+| `Tests/juliusTests/LoopTests.swift` | Modify — add tool-related loop tests |
+| `Tests/juliusTests/IntegrationTests.swift` | Modify — add end-to-end tool cycle test |
 
 ## Design
 
-Tools are dynamic at the julius level — JSON Schema for input definitions, raw string arguments and results. Type safety is a future agent-layer concern.
+### Architecture decision: julius surfaces, agent executes
+
+Julius is a harness library for communicating with LLM providers. Tool execution is an agent-layer concern — the agent decides how to execute, whether to approve, how to handle errors, whether to retry.
+
+**Julius owns:**
+- Types: `ToolDefinition`, `ToolCall`, `ToolResult`, `ToolChoice`
+- Provider serialization of tool definitions and tool results into requests
+- SSE parsing of tool call deltas into complete `ToolCall` events
+- Loop: includes `tools` in requests, stops on `.toolUse`, returns `AssistantMessage` with `ToolCall`s in `content`
+
+**Agent owns:**
+- Which tools to offer (passes `[ToolDefinition]` to the loop)
+- Executing tool calls (extracted from `AssistantMessage.content`)
+- Feeding results back (appends `.toolResult` to session, calls loop again)
+- Typed wrappers, approval gates, logging, retry logic
+
+**Caller pattern:**
+```swift
+let tools: [ToolDefinition] = [weatherDef, searchDef]
+let loop = Loop(provider: provider, session: session, model: "gpt-4o",
+                maxTokens: 256, tools: tools)
+
+while true {
+    let message = try await loop.run()
+    if message.stopReason == .stop { return message }
+    // Agent extracts and executes tool calls
+    let calls = message.content.compactMap {
+        if case .toolUse(let c) = $0 { return c } else { return nil }
+    }
+    for call in calls {
+        let result = try await myAgentRegistry.execute(call)
+        try await session.append(.toolResult(result))
+    }
+}
+```
 
 ### Step 1 — Core types (`Sources/julius/Types.swift`)
 
@@ -110,7 +144,7 @@ public enum ProviderEvent: Equatable, Sendable {
 }
 ```
 
-Note: `toolCallDelta` events are consumed internally by the provider's `mapToProviderEvents` and the `accumulate()` helper — they don't need to be a separate `ProviderEvent` case. The provider accumulates deltas internally and emits a single `.toolCall(ToolCall)` when the call is complete. This keeps the public API clean and matches how `.textDelta` / `.reasoningDelta` already work (callers buffer them).
+Note: `toolCallDelta` events are consumed internally by the provider's `mapToProviderEvents` — they don't need to be a separate `ProviderEvent` case. The provider accumulates deltas internally and emits a single `.toolCall(ToolCall)` when the call is complete. This keeps the public API clean.
 
 Extend `ProviderRequest`:
 
@@ -126,20 +160,6 @@ public struct ProviderRequest: Equatable {
 }
 ```
 
-New error case:
-
-```swift
-public enum JuliusError: Error, Sendable {
-    case connectionFailed(String)
-    case requestSerializationFailed(String)
-    case responseParsingFailed(String)
-    case transportDisconnected
-    case cancelled
-    case toolExecutionFailed(String)             // NEW
-    case noRegistry                              // NEW
-}
-```
-
 **Why this shape:**
 - `ToolCall.arguments` is a raw `String` — models don't always produce valid JSON; tool implementations handle parsing (matches DESIGN.md decisions log).
 - `ToolResult.output` is a raw `String` — tool implementations decide format.
@@ -148,69 +168,9 @@ public enum JuliusError: Error, Sendable {
 - `ProviderEvent.toolCall(ToolCall)` only fires when complete — no partial tool calls leak to callers.
 - `Message.toolResult(ToolResult)` is a top-level message case — tool results are sent as separate messages in the conversation (matches OpenAI's `role: "tool"` messages).
 
-### Step 2 — Tool registry (`Sources/julius/ToolRegistry.swift`)
+### Step 2 — OpenAI provider serialization (`Sources/julius/OpenAI/OpenAIProvider.swift`)
 
-New file.
-
-```swift
-import Foundation
-
-public typealias ToolHandler = @Sendable (String) async throws -> String
-
-public protocol ToolRegistry: Sendable {
-    func register(_ definition: ToolDefinition, handler: @escaping ToolHandler) async throws
-    func definitions() async -> [ToolDefinition]
-    func execute(_ call: ToolCall) async throws -> ToolResult
-    func has(name: String) async -> Bool
-}
-
-public actor InMemoryToolRegistry: ToolRegistry {
-    private var tools: [String: (definition: ToolDefinition, handler: ToolHandler)] = [:]
-
-    public init() {}
-
-    public func register(_ definition: ToolDefinition, handler: @escaping ToolHandler) throws {
-        guard tools[definition.name] == nil else {
-            throw JuliusError.requestSerializationFailed(
-                "Tool '\(definition.name)' is already registered"
-            )
-        }
-        tools[definition.name] = (definition: definition, handler: handler)
-    }
-
-    public func definitions() -> [ToolDefinition] {
-        tools.values.map { $0.definition }
-    }
-
-    public func execute(_ call: ToolCall) async throws -> ToolResult {
-        guard let entry = tools[call.name] else {
-            throw JuliusError.toolExecutionFailed("Unknown tool: \(call.name)")
-        }
-        do {
-            let output = try await entry.handler(call.arguments)
-            return ToolResult(callId: call.id, output: output)
-        } catch {
-            throw JuliusError.toolExecutionFailed(
-                "Tool '\(call.name)' failed: \(error.localizedDescription)"
-            )
-        }
-    }
-
-    public func has(name: String) -> Bool {
-        tools[name] != nil
-    }
-}
-```
-
-**Design notes:**
-- `register` throws on duplicate names — prevents accidental overwrite, keeps registry predictable.
-- `execute` wraps handler errors in `JuliusError.toolExecutionFailed` — callers get a consistent error type regardless of what the handler throws.
-- `definitions()` returns the list needed to populate `ProviderRequest.tools`.
-- Actor isolation provides thread safety for concurrent register/execute.
-
-### Step 3 — OpenAI provider serialization (`Sources/julius/OpenAI/OpenAIProvider.swift`)
-
-#### 3a. `serializeRequest` — tools and tool_choice
+#### 2a. `serializeRequest` — tools and tool_choice
 
 Current code (line ~82):
 ```swift
@@ -267,7 +227,7 @@ private func jsonify(_ value: JSONValue) -> Any {
 }
 ```
 
-#### 3b. `serializeMessage` — tool results
+#### 2b. `serializeMessage` — tool results
 
 Current code (line ~96) handles `.user` and `.assistant`. Add `.toolResult`:
 
@@ -315,7 +275,7 @@ case let .assistant(msg):
 
 **Why:** OpenAI requires assistant messages with tool calls to include the `tool_calls` array, and tool results as `role: "tool"` messages with matching `tool_call_id`.
 
-#### 3c. `parseChunk` — tool call SSE events
+#### 2c. `parseChunk` — tool call SSE events
 
 OpenAI streams tool calls as delta chunks in the `choices[].delta` object:
 
@@ -432,9 +392,9 @@ private func parseChunk(
 
 **Edge case — multiple tool calls in one response:** OpenAI uses the `index` field to distinguish concurrent tool calls. The dictionary accumulation handles this naturally.
 
-### Step 4 — Loop dispatch (`Sources/julius/Loop.swift`)
+### Step 3 — Loop changes (`Sources/julius/Loop.swift`)
 
-#### 4a. Add registry to Loop init
+#### 3a. Add `tools` to Loop init
 
 ```swift
 public struct Loop: Sendable {
@@ -445,7 +405,8 @@ public struct Loop: Sendable {
     private let maxTokens: Int
     private let temperature: Double?
     private let stopCondition: StopCondition
-    private let registry: (any ToolRegistry)?   // NEW
+    private let tools: [ToolDefinition]?        // NEW
+    private let toolChoice: ToolChoice?          // NEW
 
     public init(
         provider: Provider,
@@ -455,79 +416,50 @@ public struct Loop: Sendable {
         maxTokens: Int,
         temperature: Double? = nil,
         stopCondition: @escaping StopCondition = { _ in false },
-        registry: (any ToolRegistry)? = nil,    // NEW — default nil preserves existing behavior
+        tools: [ToolDefinition]? = nil,          // NEW — default nil preserves existing behavior
+        toolChoice: ToolChoice? = nil,           // NEW
     ) {
         // ... existing assignments ...
-        self.registry = registry
+        self.tools = tools
+        self.toolChoice = toolChoice
     }
 }
 ```
 
-#### 4b. Pass tools from registry into ProviderRequest
+#### 3b. Include tools in ProviderRequest
 
-After building the request, if registry is present, attach tool definitions:
+In `run()`, pass tools into the request:
 
 ```swift
-var request = ProviderRequest(
+let request = ProviderRequest(
     model: model,
     system: system,
     messages: history,
     maxTokens: maxTokens,
     temperature: temperature,
+    tools: tools,           // NEW
+    toolChoice: toolChoice,  // NEW
 )
-
-if let registry {
-    let defs = await registry.definitions()
-    if !defs.isEmpty {
-        request.tools = defs
-        request.toolChoice = .auto
-    }
-}
 ```
 
-#### 4c. Handle `.toolUse` stop reason in loop body
+#### 3c. Return on `.toolUse` instead of looping
 
-After `session.append(.assistant(message))`, before the stop check:
+The loop currently only returns on `.stop`. After the existing stop check, add:
 
 ```swift
 if message.stopReason == .toolUse {
-    guard let registry else {
-        throw JuliusError.noRegistry
-    }
-
-    // Extract tool calls from content
-    let toolCalls = message.content.compactMap { block -> ToolCall? in
-        if case let .toolUse(call) = block { return call }
-        return nil
-    }
-
-    // Execute all tool calls concurrently
-    let results: [ToolResult] = try await withThrowingTaskGroup(of: ToolResult.self) { group in
-        for call in toolCalls {
-            group.addTask {
-                try await registry.execute(call)
-            }
-        }
-        var collected: [ToolResult] = []
-        for try await result in group {
-            collected.append(result)
-        }
-        return collected
-    }
-
-    // Append results to session (order matches tool calls)
-    for result in results {
-        try await session.append(.toolResult(result))
-    }
-
-    // Continue loop — next iteration sends tool results back to the model
-    continue
+    return message    // Surface to caller — agent handles execution
 }
 ```
 
-The existing `if message.stopReason == .stop { return message }` remains unchanged — tool use `continue`s before reaching it.
+The existing `if message.stopReason == .stop { return message }` and `.length` continuation remain unchanged. The loop becomes:
 
-#### 4d. Update `accumulate()` to handle tool calls
+1. Build request with tools → send → accumulate → append to session
+2. If `.stop` → return (done)
+3. If `.toolUse` → return (caller executes tools, appends results, calls `run()` again)
+4. If `.length` → loop (continuation)
+
+#### 3d. Update `accumulate()` to handle tool calls
 
 The `accumulate()` method already iterates `ProviderEvent`s. Add a case for `.toolCall`:
 
@@ -574,33 +506,9 @@ private func accumulate(_ responseStream: ResponseStream) async throws -> Assist
 
 **Event ordering guarantee:** The provider emits `.toolCall(ToolCall)` events before `.done(.toolUse)`, so `accumulate()` always sees complete tool calls before the stop reason.
 
-### Step 5 — Tests
+### Step 4 — Tests
 
-#### 5a. `Tests/juliusTests/ToolRegistryTests.swift` (new file)
-
-Tests for the registry itself:
-
-```swift
-@Suite("InMemoryToolRegistry tests")
-struct ToolRegistryTests {
-    // Register a tool, verify definitions() returns it
-    @Test func `register and list definitions`() async throws
-
-    // Register a tool, call execute with matching call, verify result
-    @Test func `execute returns handler output`() async throws
-
-    // Execute with unknown tool name throws toolExecutionFailed
-    @Test func `execute unknown tool throws`() async
-
-    // Registering same name twice throws
-    @Test func `duplicate registration throws`() async throws
-
-    // Register multiple tools, verify all returned
-    @Test func `multiple tools registered`() async throws
-}
-```
-
-#### 5b. `Tests/juliusTests/OpenAIProviderTests.swift` (extend)
+#### 4a. `Tests/juliusTests/OpenAIProviderTests.swift` (extend)
 
 Add SSE chunk helper for tool call deltas:
 
@@ -634,57 +542,56 @@ New test cases:
 @Test func `assistant with tool calls serialization`() async throws
 ```
 
-#### 5c. `Tests/juliusTests/LoopTests.swift` (extend)
+#### 4b. `Tests/juliusTests/LoopTests.swift` (extend)
 
 New test cases:
 
 ```swift
-// Full tool loop: provider returns toolUse → registry executes → result appended →
-// second turn returns stop → verify session history
-@Test func `tool dispatch and continuation`() async throws
+// Loop with tools: provider returns toolUse → loop returns AssistantMessage with ToolCalls
+@Test func `tool use returns message with calls`() async throws
 
-// Multiple tool calls in one response, all executed concurrently
-@Test func `concurrent tool execution`() async throws
+// Loop without tools: still works exactly as before (no regressions)
+// (existing tests cover this)
 
-// toolUse stop reason without registry throws JuliusError.noRegistry
-@Test func `tool use without registry throws`() async throws
-
-// Tool handler throws → JuliusError.toolExecutionFailed propagates
-@Test func `tool handler error propagation`() async throws
+// Loop with tools, provider returns stop immediately → normal return
+@Test func `tools present but no tool call`() async throws
 ```
 
-#### 5d. `Tests/juliusTests/IntegrationTests.swift` (extend)
+#### 4c. `Tests/juliusTests/IntegrationTests.swift` (extend)
 
 ```swift
-// End-to-end: InMemorySession + InMemoryToolRegistry + OpenAIProvider (MockTransport) + Loop
-// Simulate: user asks question → model calls get_weather tool → tool returns "22°C" →
-// model uses result → final text answer
+// End-to-end: InMemorySession + OpenAIProvider (MockTransport) + Loop
+// Simulate: user asks question → model calls get_weather tool → loop returns →
+// caller executes tool, appends result → loop.run() again → model uses result → final answer
 @Test func `full tool use cycle`() async throws
 ```
 
-This test uses `SequencedMockProvider` (from LoopTests) with two canned sequences:
-1. First: `.toolCall(get_weather)` + `.done(.toolUse)`
-2. Second: `.textDelta("It's 22°C")` + `.done(.stop)`
+This test simulates the agent-side tool execution loop:
+1. Create session, append user message
+2. Create loop with tool definitions
+3. First `run()` → provider returns `.toolCall(get_weather)` + `.done(.toolUse)`
+4. Extract tool calls, "execute" them (hardcoded result), append `.toolResult`
+5. Second `run()` → provider returns text + `.done(.stop)`
+6. Verify session history: user, assistant(toolCall), toolResult, assistant(text)
 
 ### Implementation order
 
-1. **Types.swift** — all new types and enum extensions. Existing code compiles because new fields are optional / new enum cases don't break existing switch exhaustiveness if defaults are used. But: every `switch` on `ContentBlock`, `Message`, `StopReason`, `ProviderEvent` needs new cases. Audit all call sites:
+1. **Types.swift** — all new types and enum extensions. Every `switch` on `ContentBlock`, `Message`, `StopReason`, `ProviderEvent` needs new cases. Audit all call sites:
    - `Loop.accumulate()` — add `.toolCall` case
    - `OpenAIProvider.serializeMessage()` — add `.toolResult` case, extend `.assistant`
    - `OpenAIProvider.parseChunk()` — handle `"tool_calls"` finish reason
    - Test helper `accumulateMessage()` in TypesTests — add `.toolCall` case
    - Test helper `accumulate()` in IntegrationTests — add `.toolCall` case
 
-2. **ToolRegistry.swift** — new file, no dependencies on changed code. Can be done in parallel with step 1.
+2. **OpenAIProvider.swift** — serialization and parsing changes. Depends on step 1 types.
 
-3. **OpenAIProvider.swift** — serialization and parsing changes. Depends on step 1 types.
+3. **Loop.swift** — tools parameter, return on `.toolUse`. Depends on step 1.
 
-4. **Loop.swift** — registry integration and dispatch. Depends on steps 1 and 2.
-
-5. **Tests** — can be written alongside each step. Run `mise run build` after each step to verify compilation. Run `mise run test` after step 4 to verify all tests.
+4. **Tests** — can be written alongside each step. Run `mise run build` after each step to verify compilation. Run `mise run test` after step 3 to verify all tests.
 
 ### Non-goals (deferred)
 
+- Tool execution, registry, or handlers — agent-layer concern
 - Typed tool wrappers (Codable) — agent-layer concern
 - Tool call streaming deltas as public events — internal only, emitted as complete `.toolCall`
 - Tool approval/permission system — future feature
@@ -695,13 +602,10 @@ This test uses `SequencedMockProvider` (from LoopTests) with two canned sequence
 - [ ] `ToolDefinition`, `ToolCall`, `ToolResult`, `ToolChoice` types with `Equatable`/`Sendable`
 - [ ] `ContentBlock.toolUse`, `Message.toolResult`, `StopReason.toolUse`, `ProviderEvent.toolCall` added
 - [ ] `ProviderRequest` accepts optional `tools` and `toolChoice`
-- [ ] `JuliusError.toolExecutionFailed` and `JuliusError.noRegistry` error cases
-- [ ] `ToolRegistry` protocol + `InMemoryToolRegistry` actor with register/definitions/execute
 - [ ] `OpenAIProvider` serializes tools, tool_choice, and tool result messages correctly
 - [ ] `OpenAIProvider` parses tool call SSE delta chunks into `.toolCall` events
-- [ ] `Loop` passes tool definitions from registry into requests
-- [ ] `Loop` dispatches tool calls via registry, appends results, continues conversation
-- [ ] `Loop` throws `JuliusError.noRegistry` when tool use requested without registry
+- [ ] `Loop` accepts optional `tools` and `toolChoice`, includes them in requests
+- [ ] `Loop` returns `AssistantMessage` with `ToolCall`s in content when `stopReason == .toolUse`
 - [ ] `accumulate()` handles `.toolCall` events, flushing text/reasoning first
 - [ ] All existing tests pass unchanged (no regressions)
-- [ ] New tests: registry, provider serialization/parsing, loop dispatch, integration cycle
+- [ ] New tests: provider serialization/parsing, loop tool behavior, integration cycle
