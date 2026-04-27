@@ -41,6 +41,16 @@ private final class HangingProvider: Provider, @unchecked Sendable {
     }
 }
 
+/// Consume a `LoopEvent` stream and return the `AssistantMessage` from `.complete`.
+private func collectMessage(
+    _ stream: AsyncThrowingStream<LoopEvent, Error>,
+) async throws -> AssistantMessage {
+    for try await event in stream {
+        if case let .complete(message) = event { return message }
+    }
+    throw JuliusError.cancelled
+}
+
 // MARK: - Tests
 
 @Suite("Loop integration tests")
@@ -65,7 +75,7 @@ struct LoopTests {
             maxTokens: 256,
         )
 
-        let result = try await loop.run()
+        let result = try await collectMessage(loop.run())
 
         #expect(result.stopReason == .stop)
         #expect(result.content == [.text("Hi there")])
@@ -100,7 +110,7 @@ struct LoopTests {
             maxTokens: 256,
         )
 
-        let result = try await loop.run()
+        let result = try await collectMessage(loop.run())
 
         #expect(result.stopReason == .stop)
         #expect(result.content == [.text(" when a function calls itself.")])
@@ -111,9 +121,9 @@ struct LoopTests {
         #expect(messages.count == 3)
     }
 
-    /// Task cancellation mid-loop throws JuliusError.cancelled.
+    /// Task cancellation ends the stream without hanging.
     @Test
-    func `task cancellation throws cancelled`() async {
+    func `task cancellation ends stream`() async {
         let session = InMemorySession()
         await session.append(.user("Hello"))
 
@@ -132,27 +142,17 @@ struct LoopTests {
         )
 
         let task = Task {
-            try await loop.run()
+            for try await _ in loop.run() {}
         }
 
         // Give the loop time to enter the stream consumption, then cancel.
         try? await Task.sleep(for: .milliseconds(50))
         task.cancel()
 
-        do {
-            _ = try await task.value
-            Issue.record("Expected JuliusError.cancelled")
-        } catch let error as JuliusError {
-            if case .cancelled = error {
-                // Correct
-            } else {
-                Issue.record("Wrong JuliusError case: \(error)")
-            }
-        } catch is CancellationError {
-            // Also acceptable — Task.checkCancellation may throw this
-        } catch {
-            Issue.record("Unexpected error type: \(error)")
-        }
+        // Stream should end promptly — the consumer sees nil (normal end)
+        // because AsyncThrowingStream.Iterator.next() returns nil on cancellation.
+        // The child task is cancelled via onTermination (fired on iterator deinit).
+        _ = try? await task.value
     }
 
     /// Stop condition that returns true after one message halts with JuliusError.cancelled.
@@ -184,7 +184,7 @@ struct LoopTests {
         )
 
         do {
-            _ = try await loop.run()
+            _ = try await collectMessage(loop.run())
             Issue.record("Expected JuliusError.cancelled")
         } catch let error as JuliusError {
             if case .cancelled = error {
@@ -192,6 +192,46 @@ struct LoopTests {
             } else {
                 Issue.record("Wrong JuliusError case: \(error)")
             }
+        }
+    }
+
+    /// Streaming deltas arrive in order before `.complete`.
+    @Test
+    func `streaming deltas observed`() async throws {
+        let session = InMemorySession()
+        await session.append(.user("Hello"))
+
+        let provider = SequencedMockProvider(cannedEventSequences: [
+            [
+                .reasoningDelta("thinking"),
+                .textDelta("hello"),
+                .done(.stop),
+            ],
+        ])
+
+        let loop = Loop(
+            provider: provider,
+            session: session,
+            model: "gpt-4o",
+            maxTokens: 256,
+        )
+
+        var events: [LoopEvent] = []
+        for try await event in loop.run() {
+            events.append(event)
+        }
+
+        // 3 deltas + 1 complete
+        #expect(events.count == 4)
+        #expect(events[0] == .delta(.reasoningDelta("thinking")))
+        #expect(events[1] == .delta(.textDelta("hello")))
+        #expect(events[2] == .delta(.done(.stop)))
+
+        if case let .complete(message) = events[3] {
+            #expect(message.stopReason == .stop)
+            #expect(message.content == [.reasoning("thinking"), .text("hello")])
+        } else {
+            Issue.record("Expected .complete as last event, got \(events[3])")
         }
     }
 }
