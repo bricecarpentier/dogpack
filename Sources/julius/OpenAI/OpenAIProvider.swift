@@ -10,7 +10,7 @@ public struct OpenAIConfiguration: Sendable {
 
 public typealias TransportFactory = @Sendable (URL, String?) -> Transport
 
-final public class OpenAIProvider: Provider, @unchecked Sendable {
+public final class OpenAIProvider: Provider, @unchecked Sendable {
     static let endpoint = "/chat/completions"
 
     private let baseURL: URL
