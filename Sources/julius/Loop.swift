@@ -10,6 +10,8 @@ public struct Loop: Sendable {
     private let maxTokens: Int
     private let temperature: Double?
     private let stopCondition: StopCondition
+    private let tools: [ToolDefinition]?
+    private let toolChoice: ToolChoice?
 
     public init(
         provider: Provider,
@@ -19,6 +21,8 @@ public struct Loop: Sendable {
         maxTokens: Int,
         temperature: Double? = nil,
         stopCondition: @escaping StopCondition = { _ in false },
+        tools: [ToolDefinition]? = nil,
+        toolChoice: ToolChoice? = nil,
     ) {
         self.provider = provider
         self.session = session
@@ -27,6 +31,8 @@ public struct Loop: Sendable {
         self.maxTokens = maxTokens
         self.temperature = temperature
         self.stopCondition = stopCondition
+        self.tools = tools
+        self.toolChoice = toolChoice
     }
 
     public func run() -> AsyncThrowingStream<LoopEvent, Error> {
@@ -49,6 +55,17 @@ public struct Loop: Sendable {
                     try await session.append(.assistant(message))
 
                     if message.stopReason == .stop {
+                        continuation.yield(.complete(message))
+                        continuation.finish()
+                        return
+                    }
+
+                    if message.stopReason == .toolUse {
+                        let calls = message.content.compactMap { block -> ToolCall? in
+                            if case let .toolUse(call) = block { return call }
+                            return nil
+                        }
+                        continuation.yield(.toolCalls(calls))
                         continuation.yield(.complete(message))
                         continuation.finish()
                         return
@@ -76,6 +93,8 @@ public struct Loop: Sendable {
             messages: history,
             maxTokens: maxTokens,
             temperature: temperature,
+            tools: tools,
+            toolChoice: toolChoice,
         )
     }
 
@@ -96,6 +115,17 @@ public struct Loop: Sendable {
             case let .reasoningDelta(text):
                 currentReasoning += text
                 continuation.yield(.delta(.reasoningDelta(text)))
+            case let .toolCall(call):
+                if !currentReasoning.isEmpty {
+                    contentBlocks.append(.reasoning(currentReasoning))
+                    currentReasoning = ""
+                }
+                if !currentText.isEmpty {
+                    contentBlocks.append(.text(currentText))
+                    currentText = ""
+                }
+                contentBlocks.append(.toolUse(call))
+                continuation.yield(.delta(.toolCall(call)))
             case let .done(reason):
                 if !currentReasoning.isEmpty {
                     contentBlocks.append(.reasoning(currentReasoning))

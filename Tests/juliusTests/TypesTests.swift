@@ -25,6 +25,8 @@ private func accumulateMessage(
             textParts.append(text)
         case let .done(reason):
             stopReason = reason
+        case .toolCall:
+            break
         }
     }
     return try AssistantMessage(

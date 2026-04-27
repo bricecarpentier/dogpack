@@ -59,7 +59,7 @@ struct LoopTests {
     @Test
     func `single turn returns immediately`() async throws {
         let session = InMemorySession()
-        await session.append(.user("Hello"))
+        try await session.append(.user("Hello"))
 
         let provider = SequencedMockProvider(cannedEventSequences: [
             [
@@ -90,7 +90,7 @@ struct LoopTests {
     @Test
     func `multi turn loops until stop`() async throws {
         let session = InMemorySession()
-        await session.append(.user("Explain recursion"))
+        try await session.append(.user("Explain recursion"))
 
         let provider = SequencedMockProvider(cannedEventSequences: [
             [
@@ -125,7 +125,7 @@ struct LoopTests {
     @Test
     func `task cancellation ends stream`() async {
         let session = InMemorySession()
-        await session.append(.user("Hello"))
+        try? await session.append(.user("Hello"))
 
         // Provider that blocks until cancelled — stream finishes on cancel.
         let (stream, continuation) = AsyncThrowingStream<ProviderEvent, Error>.makeStream()
@@ -159,7 +159,7 @@ struct LoopTests {
     @Test
     func `stop condition halts loop`() async throws {
         let session = InMemorySession()
-        await session.append(.user("Hello"))
+        try await session.append(.user("Hello"))
 
         let provider = SequencedMockProvider(cannedEventSequences: [
             [
@@ -199,7 +199,7 @@ struct LoopTests {
     @Test
     func `streaming deltas observed`() async throws {
         let session = InMemorySession()
-        await session.append(.user("Hello"))
+        try await session.append(.user("Hello"))
 
         let provider = SequencedMockProvider(cannedEventSequences: [
             [
@@ -232,6 +232,151 @@ struct LoopTests {
             #expect(message.content == [.reasoning("thinking"), .text("hello")])
         } else {
             Issue.record("Expected .complete as last event, got \(events[3])")
+        }
+    }
+}
+
+// MARK: - Tool Loop Tests
+
+@Suite("Loop tool tests")
+struct LoopToolTests {
+    private let weatherTool = ToolDefinition(
+        name: "get_weather",
+        description: "Get weather",
+        inputSchema: .object([
+            "type": .string("object"),
+            "properties": .object([
+                "city": .object(["type": .string("string")]),
+            ]),
+        ]),
+    )
+
+    /// Loop with tools: provider returns toolUse -> loop yields .toolCalls then .complete.
+    @Test
+    func `tool use yields tool calls then complete`() async throws {
+        let session = InMemorySession()
+        try await session.append(.user("What's the weather?"))
+
+        let provider = SequencedMockProvider(cannedEventSequences: [
+            [
+                .toolCall(ToolCall(id: "call_1", name: "get_weather", arguments: "{\"city\": \"Paris\"}")),
+                .done(.toolUse),
+            ],
+        ])
+
+        let loop = Loop(
+            provider: provider,
+            session: session,
+            model: "gpt-4o",
+            maxTokens: 256,
+            tools: [weatherTool],
+        )
+
+        var events: [LoopEvent] = []
+        for try await event in loop.run() {
+            events.append(event)
+        }
+
+        // .delta(.toolCall) + .delta(.done(.toolUse)) + .toolCalls + .complete
+        #expect(events.count == 4)
+
+        let expectedCall = ToolCall(id: "call_1", name: "get_weather", arguments: "{\"city\": \"Paris\"}")
+        #expect(events[0] == .delta(.toolCall(expectedCall)))
+        #expect(events[1] == .delta(.done(.toolUse)))
+
+        if case let .toolCalls(calls) = events[2] {
+            #expect(calls.count == 1)
+            #expect(calls[0] == expectedCall)
+        } else {
+            Issue.record("Expected .toolCalls at index 2, got \(events[2])")
+        }
+
+        if case let .complete(message) = events[3] {
+            #expect(message.stopReason == .toolUse)
+            if case let .toolUse(call) = message.content[0] {
+                #expect(call.id == "call_1")
+            } else {
+                Issue.record("Expected .toolUse content block")
+            }
+        } else {
+            Issue.record("Expected .complete at index 3, got \(events[3])")
+        }
+
+        let messages = await session.messages()
+        #expect(messages.count == 2)
+    }
+
+    /// Loop with tools, provider returns stop immediately -> normal stream (no regressions).
+    @Test
+    func `tool enabled but stop returned`() async throws {
+        let session = InMemorySession()
+        try await session.append(.user("Hello"))
+
+        let provider = SequencedMockProvider(cannedEventSequences: [
+            [
+                .textDelta("Hi there"),
+                .done(.stop),
+            ],
+        ])
+
+        let loop = Loop(
+            provider: provider,
+            session: session,
+            model: "gpt-4o",
+            maxTokens: 256,
+            tools: [weatherTool],
+        )
+
+        let result = try await collectMessage(loop.run())
+
+        #expect(result.stopReason == .stop)
+        #expect(result.content == [.text("Hi there")])
+        #expect(provider.callCount == 1)
+    }
+
+    /// Tool call events appear as .delta(.toolCall) during streaming.
+    @Test
+    func `tool call delta events during streaming`() async throws {
+        let session = InMemorySession()
+        try await session.append(.user("Weather?"))
+
+        let provider = SequencedMockProvider(cannedEventSequences: [
+            [
+                .textDelta("Let me check."),
+                .toolCall(ToolCall(id: "call_2", name: "get_weather", arguments: "{}")),
+                .done(.toolUse),
+            ],
+        ])
+
+        let loop = Loop(
+            provider: provider,
+            session: session,
+            model: "gpt-4o",
+            maxTokens: 256,
+        )
+
+        var events: [LoopEvent] = []
+        for try await event in loop.run() {
+            events.append(event)
+        }
+
+        // .delta(.textDelta) + .delta(.toolCall) + .delta(.done) + .toolCalls + .complete
+        #expect(events.count == 5)
+        #expect(events[0] == .delta(.textDelta("Let me check.")))
+        let call2 = ToolCall(id: "call_2", name: "get_weather", arguments: "{}")
+        #expect(events[1] == .delta(.toolCall(call2)))
+        #expect(events[2] == .delta(.done(.toolUse)))
+
+        if case let .complete(message) = events[4] {
+            #expect(message.content.count == 2)
+            #expect(message.content[0] == .text("Let me check."))
+            if case let .toolUse(call) = message.content[1] {
+                #expect(call.id == "call_2")
+            } else {
+                Issue.record("Expected .toolUse at content[1]")
+            }
+        } else {
+            Issue.record("Expected .complete as last event")
         }
     }
 }

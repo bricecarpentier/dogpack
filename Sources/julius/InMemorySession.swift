@@ -9,7 +9,7 @@ public actor InMemorySession: Session {
         store
     }
 
-    public func append(_ message: Message) {
+    public func append(_ message: Message) throws {
         store.append(message)
     }
 }
