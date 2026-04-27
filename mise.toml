@@ -40,7 +40,7 @@ run = "rm -rf .build"
 
 [tasks.dev]
 description = "Build and run the project"
-run = "swift run"
+run = "swift run dogpack"
 
 [tasks.run]
 description = "Run a previously compiled build"
