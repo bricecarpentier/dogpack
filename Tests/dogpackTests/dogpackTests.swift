@@ -25,7 +25,7 @@ func `dogpack exits non-zero with usage when args are missing`() throws {
 
     let data = pipe.fileHandleForReading.readDataToEndOfFile()
     let output = String(data: data, encoding: .utf8) ?? ""
-    #expect(output.contains("Usage:"))
+    #expect(output.contains("USAGE:"))
     #expect(output.contains("--url"))
     #expect(output.contains("--api-key"))
     #expect(output.contains("--model"))
