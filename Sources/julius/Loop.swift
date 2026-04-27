@@ -29,37 +29,60 @@ public struct Loop: Sendable {
         self.stopCondition = stopCondition
     }
 
-    public func run() async throws -> AssistantMessage {
-        while true {
-            try Task.checkCancellation()
+    public func run() -> AsyncThrowingStream<LoopEvent, Error> {
+        let (stream, continuation) = AsyncThrowingStream<LoopEvent, Error>.makeStream()
 
-            if await stopCondition(session) {
-                throw JuliusError.cancelled
-            }
+        let childTask = Task {
+            do {
+                while true {
+                    try Task.checkCancellation()
 
-            let history = await session.messages()
-            let request = ProviderRequest(
-                model: model,
-                system: system,
-                messages: history,
-                maxTokens: maxTokens,
-                temperature: temperature,
-            )
+                    if await stopCondition(session) {
+                        throw JuliusError.cancelled
+                    }
 
-            let responseStream = try await provider.send(request)
-            let message = try await accumulate(responseStream)
-            if Task.isCancelled { throw JuliusError.cancelled }
-            try await session.append(.assistant(message))
+                    let request = try await buildRequest()
+                    let responseStream = try await provider.send(request)
+                    let message = try await processStream(responseStream, continuation: continuation)
 
-            if message.stopReason == .stop {
-                return message
+                    if Task.isCancelled { throw JuliusError.cancelled }
+                    try await session.append(.assistant(message))
+
+                    if message.stopReason == .stop {
+                        continuation.yield(.complete(message))
+                        continuation.finish()
+                        return
+                    }
+                }
+            } catch {
+                continuation.finish(throwing: error)
             }
         }
+
+        continuation.onTermination = { _ in
+            childTask.cancel()
+        }
+
+        return stream
     }
 
     // MARK: - Private
 
-    private func accumulate(_ responseStream: ResponseStream) async throws -> AssistantMessage {
+    private func buildRequest() async throws -> ProviderRequest {
+        let history = await session.messages()
+        return ProviderRequest(
+            model: model,
+            system: system,
+            messages: history,
+            maxTokens: maxTokens,
+            temperature: temperature,
+        )
+    }
+
+    private func processStream(
+        _ responseStream: ResponseStream,
+        continuation: AsyncThrowingStream<LoopEvent, Error>.Continuation,
+    ) async throws -> AssistantMessage {
         var contentBlocks: [ContentBlock] = []
         var currentText = ""
         var currentReasoning = ""
@@ -69,8 +92,10 @@ public struct Loop: Sendable {
             switch event {
             case let .textDelta(text):
                 currentText += text
+                continuation.yield(.delta(.textDelta(text)))
             case let .reasoningDelta(text):
                 currentReasoning += text
+                continuation.yield(.delta(.reasoningDelta(text)))
             case let .done(reason):
                 if !currentReasoning.isEmpty {
                     contentBlocks.append(.reasoning(currentReasoning))
@@ -81,6 +106,7 @@ public struct Loop: Sendable {
                     currentText = ""
                 }
                 stopReason = reason
+                continuation.yield(.delta(.done(reason)))
             }
         }
 

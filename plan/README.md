@@ -10,7 +10,7 @@
 | 06 | feature | Provider Endpoint Path | done | 04 |
 | 07 | feature | Loop (ReAct Loop) | done | 01, 02, 03, 04 |
 | 08 | feature | CLI Test Client | done | 06, 07 |
-| 09 | feature | Streaming Display | not started | 07 |
+| 09 | feature | Streaming Display | done | 07 |
 | 10 | feature | ArgumentParser Refactor | done | 08 |
 | 11 | bug | Pass CLI args through `mise run dev` | done | — |
 | 12 | feature | Tools Management | not started | 07 |

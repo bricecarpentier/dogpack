@@ -53,6 +53,11 @@ public struct ProviderRequest: Equatable {
     public var temperature: Double?
 }
 
+public enum LoopEvent: Equatable, Sendable {
+    case delta(ProviderEvent)
+    case complete(AssistantMessage)
+}
+
 public struct ResponseStream: Sendable {
     public let events: AsyncThrowingStream<ProviderEvent, Error>
     public let cancel: @Sendable () async -> Void

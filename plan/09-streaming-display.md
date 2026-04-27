@@ -1,6 +1,6 @@
 # 09 — Streaming Display
 
-## Status: not started
+## Status: done
 
 ## Depends on
 07 (Loop)
@@ -183,8 +183,8 @@ and `.complete(AssistantMessage)`. Mark `Sendable`.
 - `mise run test` — all tests pass (julius + integration)
 
 ## Acceptance criteria
-- [ ] `mise run build` passes
-- [ ] `mise run test` passes
-- [ ] REPL prints text tokens as they arrive
-- [ ] Reasoning deltas display with `| ` prefix as they stream
-- [ ] Full response is still accumulated into session history
+- [x] `mise run build` passes
+- [x] `mise run test` passes
+- [x] REPL prints text tokens as they arrive
+- [x] Reasoning deltas display with `| ` prefix as they stream
+- [x] Full response is still accumulated into session history

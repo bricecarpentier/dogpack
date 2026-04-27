@@ -21,15 +21,35 @@ guard let baseURL = URL(string: options.url) else {
     DogpackOptions.exit(withError: ValidationError("invalid URL '\(options.url)'"))
 }
 
-// MARK: - Output Formatting
+// MARK: - Stream Display
 
-func printContentBlock(_ block: ContentBlock) {
-    switch block {
-    case let .text(text):
-        print(text)
-    case let .reasoning(text):
-        for line in text.components(separatedBy: "\n") {
-            print("| \(line)")
+@MainActor
+func displayStream(_ stream: AsyncThrowingStream<LoopEvent, Error>) async throws {
+    var inReasoning = false
+    for try await event in stream {
+        switch event {
+        case let .delta(.textDelta(text)):
+            print(text, terminator: "")
+            fflush(stdout)
+            inReasoning = false
+        case let .delta(.reasoningDelta(text)):
+            let lines = text.components(separatedBy: "\n")
+            for (idx, line) in lines.enumerated() {
+                if idx > 0 {
+                    print()
+                    print("| ", terminator: "")
+                } else if !inReasoning {
+                    print("| ", terminator: "")
+                }
+                print(line, terminator: "")
+            }
+            inReasoning = true
+            fflush(stdout)
+        case .delta(.done):
+            print()
+            inReasoning = false
+        case .complete:
+            break
         }
     }
 }
@@ -73,10 +93,7 @@ func runREPL(baseURL: URL, apiKey: String, model: String) async {
 
         currentTask = Task {
             do {
-                let message = try await loop.run()
-                for block in message.content {
-                    printContentBlock(block)
-                }
+                try await displayStream(loop.run())
             } catch is CancellationError {
                 print("\n[interrupted]")
             } catch JuliusError.cancelled {
