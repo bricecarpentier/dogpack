@@ -12,6 +12,6 @@
 | 08 | feature | CLI Test Client | done | 06, 07 |
 | 09 | feature | Streaming Display | not started | 07 |
 | 10 | feature | ArgumentParser Refactor | not started | 08 |
-| 11 | bug | Pass CLI args through `mise run dev` | done | 10 |
+| 11 | bug | Pass CLI args through `mise run dev` | done | — |
 
 Status: `not started` | `in progress` | `done`

@@ -3,7 +3,7 @@
 ## Status: done
 
 ## Depends on
-10 (ArgumentParser Refactor)
+—
 
 ## Problem
 `mise run dev` runs `swift run` without specifying a target executable.
