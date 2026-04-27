@@ -170,7 +170,7 @@ public struct ProviderRequest: Equatable {
 
 ### Step 2 — OpenAI provider serialization (`Sources/julius/OpenAI/OpenAIProvider.swift`)
 
-#### 2a. `serializeRequest` — tools and tool_choice
+#### 2a. Request serialization — tools and tool_choice
 
 Current code (line ~82):
 ```swift
@@ -227,7 +227,7 @@ private func jsonify(_ value: JSONValue) -> Any {
 }
 ```
 
-#### 2b. `serializeMessage` — tool results
+#### 2b. Message serialization — tool results
 
 Current code (line ~96) handles `.user` and `.assistant`. Add `.toolResult`:
 
@@ -275,7 +275,7 @@ case let .assistant(msg):
 
 **Why:** OpenAI requires assistant messages with tool calls to include the `tool_calls` array, and tool results as `role: "tool"` messages with matching `tool_call_id`.
 
-#### 2c. `parseChunk` — tool call SSE events
+#### 2c. SSE parsing — tool call events
 
 OpenAI streams tool calls as delta chunks in the `choices[].delta` object:
 
@@ -394,7 +394,7 @@ private func parseChunk(
 
 ### Step 3 — Loop changes (`Sources/julius/Loop.swift`)
 
-#### 3a. Add `tools` to Loop init
+#### 3a. Loop init — add tools parameter
 
 ```swift
 public struct Loop: Sendable {
@@ -426,7 +426,7 @@ public struct Loop: Sendable {
 }
 ```
 
-#### 3b. Include tools in ProviderRequest
+#### 3b. Loop body — include tools in request
 
 In `run()`, pass tools into the request:
 
@@ -442,7 +442,7 @@ let request = ProviderRequest(
 )
 ```
 
-#### 3c. Return on `.toolUse` instead of looping
+#### 3c. Loop body — return on toolUse
 
 The loop currently only returns on `.stop`. After the existing stop check, add:
 
@@ -459,7 +459,7 @@ The existing `if message.stopReason == .stop { return message }` and `.length` c
 3. If `.toolUse` → return (caller executes tools, appends results, calls `run()` again)
 4. If `.length` → loop (continuation)
 
-#### 3d. Update `accumulate()` to handle tool calls
+#### 3d. Loop body — update accumulate for tool calls
 
 The `accumulate()` method already iterates `ProviderEvent`s. Add a case for `.toolCall`:
 
@@ -508,7 +508,7 @@ private func accumulate(_ responseStream: ResponseStream) async throws -> Assist
 
 ### Step 4 — Tests
 
-#### 4a. `Tests/juliusTests/OpenAIProviderTests.swift`
+#### 4a. OpenAI provider tests
 
 Add SSE chunk helper for tool call deltas:
 
@@ -542,7 +542,7 @@ New test cases:
 @Test func `assistant with tool calls serialization`() async throws
 ```
 
-#### 4b. `Tests/juliusTests/LoopTests.swift`
+#### 4b. Loop tests
 
 New test cases:
 
@@ -557,7 +557,7 @@ New test cases:
 @Test func `tools present but no tool call`() async throws
 ```
 
-#### 4c. `Tests/juliusTests/IntegrationTests.swift`
+#### 4c. Integration tests
 
 ```swift
 // End-to-end: InMemorySession + OpenAIProvider (MockTransport) + Loop
