@@ -508,7 +508,7 @@ private func accumulate(_ responseStream: ResponseStream) async throws -> Assist
 
 ### Step 4 — Tests
 
-#### 4a. `Tests/juliusTests/OpenAIProviderTests.swift` (extend)
+#### 4a. `Tests/juliusTests/OpenAIProviderTests.swift`
 
 Add SSE chunk helper for tool call deltas:
 
@@ -542,7 +542,7 @@ New test cases:
 @Test func `assistant with tool calls serialization`() async throws
 ```
 
-#### 4b. `Tests/juliusTests/LoopTests.swift` (extend)
+#### 4b. `Tests/juliusTests/LoopTests.swift`
 
 New test cases:
 
@@ -557,7 +557,7 @@ New test cases:
 @Test func `tools present but no tool call`() async throws
 ```
 
-#### 4c. `Tests/juliusTests/IntegrationTests.swift` (extend)
+#### 4c. `Tests/juliusTests/IntegrationTests.swift`
 
 ```swift
 // End-to-end: InMemorySession + OpenAIProvider (MockTransport) + Loop
