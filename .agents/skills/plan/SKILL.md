@@ -20,7 +20,7 @@ Both must always stay in sync.
 ```markdown
 | # | Kind | Unit | Status | Depends on |
 |---|------|------|--------|------------|
-| NN | feature | Short Title | not started | MM |
+| NN | feature | Short Title | draft | MM |
 ```
 
 ### Columns
@@ -30,7 +30,7 @@ Both must always stay in sync.
 | # | `01`, `02`, ... | Zero-padded, increments from the last row |
 | Kind | `feature`, `bug` | Ask the user if unclear |
 | Unit | Free text | Short descriptive title |
-| Status | `not started`, `in progress`, `done` | |
+| Status | `draft`, `not started`, `in progress`, `done` | `draft` = needs refinement before implementation |
 | Depends on | `—`, `08`, `06, 07` | Plan numbers this depends on |
 
 ## Plan file template
@@ -40,7 +40,7 @@ Both must always stay in sync.
 ```markdown
 # NN — Short Title
 
-## Status: not started
+## Status: draft
 
 ## Depends on
 MM (Short Title of Dependency)
@@ -74,12 +74,12 @@ One-line summary of what will be done.
 3. If the kind (feature/bug) is unclear, ask the user.
 4. Gather from the user: title, problem description, scope, affected files.
 5. Create `<REPOSITORY_OR_WORKTREE_ROOT>/plan/NN-slug.md` from the template above, filling in all sections.
-6. Append a row to `<REPOSITORY_OR_WORKTREE_ROOT>/plan/README.md` with status `not started`.
+6. Append a row to `<REPOSITORY_OR_WORKTREE_ROOT>/plan/README.md` with status `draft`.
 7. Both files must be committed together (see Committing below).
 
 ### Update plan status
 
-When the user says to mark a plan as `in progress` or `done`:
+When the user says to mark a plan as `draft`, `not started`, `in progress`, or `done`:
 
 1. Update the `## Status:` line in `<REPOSITORY_OR_WORKTREE_ROOT>/plan/NN-name.md`.
 2. Update the matching row in `<REPOSITORY_OR_WORKTREE_ROOT>/plan/README.md`.
