@@ -68,8 +68,9 @@ func runREPL(baseURL: URL, apiKey: String, model: String) async {
     let registry = ToolRegistry()
     do {
         try await registry.register(WeatherTool())
+        try await registry.register(BashTool())
     } catch {
-        fatalError("Failed to register WeatherTool: \(error)")
+        fatalError("Failed to register tool: \(error)")
     }
 
     let agent = Agent(
