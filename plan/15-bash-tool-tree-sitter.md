@@ -14,8 +14,8 @@ Add a bash tool implementation in zoomies that validates generated shell command
 ## Files
 | File | Action |
 |------|--------|
-| `Sources/CTreeSitter/` | Create — vendored tree-sitter core C library (`src/*.c`, `include/tree_sitter/api.h`, `module.modulemap`) |
-| `Sources/CTreeSitterBash/` | Create — vendored bash grammar C sources (`src/parser.c`, `src/scanner.c`, `include/tree_sitter_bash.h`, `module.modulemap`) |
+| `Vendor/CTreeSitter/` | Create — vendored tree-sitter core C library (`src/*.c`, `include/tree_sitter/api.h`, `module.modulemap`) |
+| `Vendor/CTreeSitterBash/` | Create — vendored bash grammar C sources (`src/parser.c`, `src/scanner.c`, `include/tree_sitter_bash.h`, `module.modulemap`) |
 | `Sources/zoomies/TreeSitter/TreeSitterBridge.swift` | Create — shared tree-sitter C API wrapper for use by all validators |
 | `Sources/zoomies/Tools/BashValidator.swift` | Create — tree-sitter-bash parse and validate, holds parser as state |
 | `Sources/zoomies/Tools/BashTool.swift` | Create — bash tool conforming to `Tool`, execution, result handling |
@@ -23,8 +23,8 @@ Add a bash tool implementation in zoomies that validates generated shell command
 | `Tests/zoomiesTests/BashToolTests.swift` | Create — validation + execution tests |
 
 ### Vendored source versions
-- tree-sitter core: v0.24.x (from <https://github.com/tree-sitter/tree-sitter>)
-- tree-sitter-bash: v0.23.x (from <https://github.com/tree-sitter/tree-sitter-bash>)
+- tree-sitter core: v0.26.8 (from <https://github.com/tree-sitter/tree-sitter>)
+- tree-sitter-bash: v0.25.1 (from <https://github.com/tree-sitter/tree-sitter-bash>)
 
 ## Design
 
@@ -35,7 +35,7 @@ tree-sitter grammars are C libraries with no SPM support (no `Package.swift`). W
 Directory structure:
 
 ```
-Sources/
+Vendor/
 ├── CTreeSitter/              ← vendored tree-sitter core (from tree-sitter/lib/)
 │   ├── include/
 │   │   └── tree_sitter/
@@ -56,6 +56,7 @@ Sources/
     │   └── scanner.c
     └── module.modulemap
 ```
+=======
 
 `module.modulemap` for CTreeSitter:
 ```
@@ -80,8 +81,8 @@ Package.swift targets:
 ```swift
 targets: [
     // Existing targets...
-    .target(name: "CTreeSitter"),           // vendored core
-    .target(name: "CTreeSitterBash"),       // vendored bash grammar
+    .target(name: "CTreeSitter", path: "Vendor/CTreeSitter"),           // vendored core
+    .target(name: "CTreeSitterBash", path: "Vendor/CTreeSitterBash"),   // vendored bash grammar
     .target(
         name: "zoomies",
         dependencies: ["julius", "CTreeSitter", "CTreeSitterBash"]
