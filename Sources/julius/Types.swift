@@ -38,6 +38,7 @@ public enum Message: Equatable, Sendable {
     case user(String)
     case assistant(AssistantMessage)
     case toolResult(ToolResult)
+    case compactedSummary(String)
 }
 
 // MARK: - Tools
@@ -90,11 +91,22 @@ public enum ProviderEvent: Equatable, Sendable {
     case textDelta(String)
     case toolCall(ToolCall)
     case done(StopReason)
+    case usage(Usage)
+}
+
+public struct Usage: Equatable, Sendable {
+    public var promptTokens: Int
+    public var completionTokens: Int
+
+    public init(promptTokens: Int = 0, completionTokens: Int = 0) {
+        self.promptTokens = promptTokens
+        self.completionTokens = completionTokens
+    }
 }
 
 public struct ProviderRequest: Equatable {
     public var model: String
-    public var system: String?
+    public var system: String
     public var messages: [Message]
     public var maxTokens: Int
     public var temperature: Double?

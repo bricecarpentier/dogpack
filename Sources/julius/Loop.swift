@@ -6,23 +6,25 @@ public struct Loop: Sendable {
     private let provider: Provider
     private let session: Session
     private let model: String
-    private let system: String?
+    private let system: String
     private let maxTokens: Int
     private let temperature: Double?
     private let stopCondition: StopCondition
     private let tools: [ToolDefinition]?
     private let toolChoice: ToolChoice?
+    private let compactor: Compactor?
 
     public init(
         provider: Provider,
         session: Session,
         model: String,
-        system: String? = nil,
+        system: String,
         maxTokens: Int,
         temperature: Double? = nil,
         stopCondition: @escaping StopCondition = { _ in false },
         tools: [ToolDefinition]? = nil,
         toolChoice: ToolChoice? = nil,
+        compactor: Compactor? = nil,
     ) {
         self.provider = provider
         self.session = session
@@ -33,6 +35,7 @@ public struct Loop: Sendable {
         self.stopCondition = stopCondition
         self.tools = tools
         self.toolChoice = toolChoice
+        self.compactor = compactor
     }
 
     public func run() -> AsyncThrowingStream<LoopEvent, Error> {
@@ -40,6 +43,8 @@ public struct Loop: Sendable {
 
         let childTask = Task {
             do {
+                var lastUsage: Usage?
+
                 while true {
                     try Task.checkCancellation()
 
@@ -47,26 +52,38 @@ public struct Loop: Sendable {
                         throw JuliusError.cancelled
                     }
 
+                    // Run compaction before building request (best-effort)
+                    if let compactor {
+                        try? await compactor.compactIfNeeded(
+                            session,
+                            lastUsage: lastUsage,
+                            system: system,
+                            provider: provider,
+                            model: model,
+                        )
+                    }
+
                     let request = try await buildRequest()
                     let responseStream = try await provider.send(request)
-                    let message = try await processStream(responseStream, continuation: continuation)
+                    let result = try await processStream(responseStream, continuation: continuation)
 
+                    lastUsage = result.usage
                     if Task.isCancelled { throw JuliusError.cancelled }
-                    try await session.append(.assistant(message))
+                    try await session.append(.assistant(result.message))
 
-                    if message.stopReason == .stop {
-                        continuation.yield(.complete(message))
+                    if result.message.stopReason == .stop {
+                        continuation.yield(.complete(result.message))
                         continuation.finish()
                         return
                     }
 
-                    if message.stopReason == .toolUse {
-                        let calls = message.content.compactMap { block -> ToolCall? in
+                    if result.message.stopReason == .toolUse {
+                        let calls = result.message.content.compactMap { block -> ToolCall? in
                             if case let .toolUse(call) = block { return call }
                             return nil
                         }
                         continuation.yield(.toolCalls(calls))
-                        continuation.yield(.complete(message))
+                        continuation.yield(.complete(result.message))
                         continuation.finish()
                         return
                     }
@@ -98,14 +115,20 @@ public struct Loop: Sendable {
         )
     }
 
+    private struct StreamResult {
+        var message: AssistantMessage
+        var usage: Usage?
+    }
+
     private func processStream(
         _ responseStream: ResponseStream,
         continuation: AsyncThrowingStream<LoopEvent, Error>.Continuation,
-    ) async throws -> AssistantMessage {
+    ) async throws -> StreamResult {
         var contentBlocks: [ContentBlock] = []
         var currentText = ""
         var currentReasoning = ""
         var stopReason: StopReason = .stop
+        var usage: Usage?
 
         for try await event in responseStream.events {
             switch event {
@@ -137,9 +160,14 @@ public struct Loop: Sendable {
                 }
                 stopReason = reason
                 continuation.yield(.delta(.done(reason)))
+            case let .usage(receivedUsage):
+                usage = receivedUsage
             }
         }
 
-        return AssistantMessage(content: contentBlocks, stopReason: stopReason)
+        return StreamResult(
+            message: AssistantMessage(content: contentBlocks, stopReason: stopReason),
+            usage: usage,
+        )
     }
 }
