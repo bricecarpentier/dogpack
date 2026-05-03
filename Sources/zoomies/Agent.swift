@@ -45,27 +45,24 @@ public final class Agent: Sendable {
                 try await config.session.append(.user(userMessage))
 
                 while true {
-                    let toolCalls = try await Self.runLoopIteration(
+                    let result = try await Self.runLoopIteration(
                         config: config,
                         continuation: continuation,
                     )
 
-                    if toolCalls.isEmpty {
-                        let messages = await config.session.messages()
-                        guard case let .assistant(finalMessage) = messages.last else {
-                            fatalError("expected assistant message as last session entry after loop iteration")
-                        }
-                        continuation.yield(.complete(finalMessage))
+                    switch result {
+                    case let .complete(message):
+                        continuation.yield(.complete(message))
                         continuation.finish()
                         return
+                    case let .toolCalls(calls):
+                        continuation.yield(.toolCalls(calls))
+                        try await Self.executeAndFeedResults(
+                            toolCalls: calls,
+                            config: config,
+                            continuation: continuation,
+                        )
                     }
-
-                    continuation.yield(.toolCalls(toolCalls))
-                    try await Self.executeAndFeedResults(
-                        toolCalls: toolCalls,
-                        config: config,
-                        continuation: continuation,
-                    )
                 }
             } catch {
                 continuation.finish(throwing: error)
@@ -81,6 +78,12 @@ public final class Agent: Sendable {
 
     // MARK: - Private
 
+    /// Result of a single loop iteration.
+    private enum LoopIterationResult {
+        case toolCalls([ToolCall])
+        case complete(AssistantMessage)
+    }
+
     /// Captures all agent configuration needed for a turn.
     private struct TurnConfig {
         let provider: Provider
@@ -92,11 +95,11 @@ public final class Agent: Sendable {
     }
 
     /// Run a single loop iteration, forwarding streaming deltas.
-    /// Returns any tool calls emitted by the model.
+    /// Returns either tool calls to execute or the final assistant message.
     private static func runLoopIteration(
         config: TurnConfig,
         continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation,
-    ) async throws -> [ToolCall] {
+    ) async throws -> LoopIterationResult {
         let definitions = await config.registry.definitions
         let loop = Loop(
             provider: config.provider,
@@ -104,10 +107,11 @@ public final class Agent: Sendable {
             model: config.model,
             system: config.system,
             maxTokens: config.maxTokens,
-            tools: definitions.isEmpty ? nil : definitions,
+            tools: definitions,
         )
 
         var toolCalls: [ToolCall] = []
+        var finalMessage: AssistantMessage?
 
         for try await event in loop.run() {
             switch event {
@@ -119,12 +123,18 @@ public final class Agent: Sendable {
                 break
             case let .toolCalls(calls):
                 toolCalls = calls
-            case .complete:
-                break
+            case let .complete(message):
+                finalMessage = message
             }
         }
 
-        return toolCalls
+        if !toolCalls.isEmpty {
+            return .toolCalls(toolCalls)
+        }
+        guard let finalMessage else {
+            throw AgentError.unexpectedLoopState("loop iteration completed without tool calls or a final message")
+        }
+        return .complete(finalMessage)
     }
 
     /// Execute tool calls in parallel, capturing errors as tool results.
@@ -156,4 +166,10 @@ public final class Agent: Sendable {
             try await config.session.append(.toolResult(result))
         }
     }
+}
+
+// MARK: - Errors
+
+public enum AgentError: Error, Sendable {
+    case unexpectedLoopState(String)
 }

@@ -133,6 +133,7 @@ struct IntegrationTests {
             system: "Be concise.",
             messages: history,
             maxTokens: 256,
+            tools: [],
         )
 
         let responseStream = try await provider.send(request)
@@ -178,6 +179,7 @@ struct IntegrationTests {
             system: "system",
             messages: [.user("What's the weather?")],
             maxTokens: 256,
+            tools: [],
         )
 
         let responseStream = try await provider.send(request)
@@ -223,6 +225,7 @@ struct IntegrationTests {
             system: "system",
             messages: [.user("Weather for Paris and London")],
             maxTokens: 256,
+            tools: [],
         )
 
         let responseStream = try await provider.send(request)
@@ -336,6 +339,7 @@ struct IntegrationTests {
             system: "system",
             messages: session.messages(),
             maxTokens: 256,
+            tools: [],
         )
 
         let msg = try await accumulate(provider.send(request))

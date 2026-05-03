@@ -54,6 +54,7 @@ struct OpenAIProviderTests {
             system: "You are helpful.",
             messages: [.user("What is 2+2?")],
             maxTokens: 1024,
+            tools: [],
         )
 
         let responseStream = try await provider.send(request)
@@ -96,6 +97,7 @@ struct OpenAIProviderTests {
             ],
             maxTokens: 512,
             temperature: 0.7,
+            tools: [],
         )
 
         _ = try await provider.send(request)
@@ -137,6 +139,7 @@ struct OpenAIProviderTests {
             system: "system",
             messages: [.user("test")],
             maxTokens: 100,
+            tools: [],
         )
 
         do {
@@ -175,6 +178,7 @@ struct OpenAIProviderTests {
             system: "system",
             messages: [.user("hi")],
             maxTokens: 10,
+            tools: [],
         ))
 
         let url = try #require(captured.value)
@@ -203,6 +207,7 @@ struct OpenAIProviderTests {
             system: "system",
             messages: [.user("hi")],
             maxTokens: 10,
+            tools: [],
         ))
 
         #expect(captured.value == "sk-test-key-123")
@@ -225,6 +230,7 @@ struct OpenAIProviderTests {
             system: "system",
             messages: [.user("Hello")],
             maxTokens: 256,
+            tools: [],
         )
 
         let responseStream = try await provider.send(request)
@@ -265,6 +271,7 @@ struct OpenAIProviderTests {
                 .user("Continue"),
             ],
             maxTokens: 256,
+            tools: [],
         )
 
         _ = try await provider.send(request)

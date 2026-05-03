@@ -66,7 +66,11 @@ func runREPL(baseURL: URL, apiKey: String, model: String) async {
     let provider = OpenAIProvider(baseURL: baseURL, apiKey: apiKey)
     let session = InMemorySession()
     let registry = ToolRegistry()
-    try? await registry.register(WeatherTool())
+    do {
+        try await registry.register(WeatherTool())
+    } catch {
+        fatalError("Failed to register WeatherTool: \(error)")
+    }
 
     let agent = Agent(
         provider: provider,

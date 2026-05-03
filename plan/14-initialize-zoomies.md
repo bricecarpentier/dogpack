@@ -156,7 +156,7 @@ public final class Agent: Sendable {
     private let session: Session
     private let registry: ToolRegistry
     private let model: String
-    private let system: String?
+    private let system: String
     private let maxTokens: Int
 
     public init(
@@ -164,7 +164,7 @@ public final class Agent: Sendable {
         session: Session,
         registry: ToolRegistry,
         model: String,
-        system: String? = nil,
+        system: String,
         maxTokens: Int = 4096
     )
 

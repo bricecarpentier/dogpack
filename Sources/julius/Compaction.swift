@@ -77,6 +77,7 @@ public struct DefaultCompactionStrategy: CompactionStrategy, Sendable {
             system: system,
             messages: summaryMessages,
             maxTokens: 1024,
+            tools: [],
         )
 
         let responseStream = try await provider.send(request)
