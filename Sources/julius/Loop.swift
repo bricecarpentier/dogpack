@@ -10,7 +10,7 @@ public struct Loop: Sendable {
     private let maxTokens: Int
     private let temperature: Double?
     private let stopCondition: StopCondition
-    private let tools: [ToolDefinition]?
+    private let tools: [ToolDefinition]
     private let toolChoice: ToolChoice?
     private let compactor: Compactor?
 
@@ -22,7 +22,7 @@ public struct Loop: Sendable {
         maxTokens: Int,
         temperature: Double? = nil,
         stopCondition: @escaping StopCondition = { _ in false },
-        tools: [ToolDefinition]? = nil,
+        tools: [ToolDefinition] = [],
         toolChoice: ToolChoice? = nil,
         compactor: Compactor? = nil,
     ) {

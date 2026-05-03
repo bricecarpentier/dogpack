@@ -59,8 +59,8 @@ public final class OpenAIProvider: Provider, @unchecked Sendable {
             body["reasoning_effort"] = effort
         }
 
-        if let tools = request.tools, !tools.isEmpty {
-            body["tools"] = tools.map { tool in
+        if !request.tools.isEmpty {
+            body["tools"] = request.tools.map { tool in
                 var function: [String: Any] = [
                     "name": tool.name,
                     "description": tool.description,

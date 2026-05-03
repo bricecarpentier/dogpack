@@ -119,7 +119,7 @@ public struct ProviderRequest: Equatable {
     public var messages: [Message]
     public var maxTokens: Int
     public var temperature: Double?
-    public var tools: [ToolDefinition]?
+    public var tools: [ToolDefinition]
     public var toolChoice: ToolChoice?
 }
 

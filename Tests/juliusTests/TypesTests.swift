@@ -51,6 +51,7 @@ struct TypesTests {
             messages: history,
             maxTokens: 1024,
             temperature: nil,
+            tools: [],
         )
         #expect(request.model == "gpt-4o")
         #expect(request.messages.count == 1)

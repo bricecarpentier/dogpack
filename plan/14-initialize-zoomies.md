@@ -1,6 +1,6 @@
 # 14 — Initialize Zoomies (Agent)
 
-## Status: not started
+## Status: done
 
 ## Depends on
 12 (Tools Management)
@@ -156,7 +156,7 @@ public final class Agent: Sendable {
     private let session: Session
     private let registry: ToolRegistry
     private let model: String
-    private let system: String?
+    private let system: String
     private let maxTokens: Int
 
     public init(
@@ -164,7 +164,7 @@ public final class Agent: Sendable {
         session: Session,
         registry: ToolRegistry,
         model: String,
-        system: String? = nil,
+        system: String,
         maxTokens: Int = 4096
     )
 
@@ -229,17 +229,17 @@ Loop.run()
 This plan sets up the agent skeleton. Concrete tools (bash, text editor, Lua) come in plans 15, 16, 17. The agent works without tools too — just text in, text out.
 
 ## Acceptance criteria
-- [ ] julius `tools` parameter refactored from `[ToolDefinition]?` to `[ToolDefinition]` in `Loop` and `ProviderRequest`
-- [ ] OpenAI serialization omits `tools` key when array is empty
-- [ ] All existing julius tests pass after refactor
-- [ ] `zoomies` target compiles as a library depending on `julius`
-- [ ] `zoomiesTests` target compiles and runs
-- [ ] `Tool` protocol with `definition` and `execute(_:)` requirements
-- [ ] `ToolRegistry` registers tools, lists definitions, dispatches calls
-- [ ] `AgentEvent` enum with `textDelta`, `reasoningDelta`, `toolCalls`, `toolResult`, `complete` cases
-- [ ] `Agent.runTurn` streams `AgentEvent`s (text/reasoning deltas forwarded in real-time)
-- [ ] `Agent` runs a text-only turn (no tools) end-to-end, streaming deltas and yielding `.complete`
-- [ ] `Agent` runs a turn with a mock tool: LLM calls tool, agent executes, yields `.toolCalls` and `.toolResult` events, feeds result, gets final response
-- [ ] CLI refactored to use `Agent` + `ToolRegistry` with `WeatherTool: Tool`
-- [ ] `WeatherTool` wraps existing `get_weather` definition and execution logic
-- [ ] CLI REPL streams `AgentEvent`s (text deltas, tool activity) instead of manual loop
+- [x] julius `tools` parameter refactored from `[ToolDefinition]?` to `[ToolDefinition]` in `Loop` and `ProviderRequest`
+- [x] OpenAI serialization omits `tools` key when array is empty
+- [x] All existing julius tests pass after refactor
+- [x] `zoomies` target compiles as a library depending on `julius`
+- [x] `zoomiesTests` target compiles and runs
+- [x] `Tool` protocol with `definition` and `execute(_:)` requirements
+- [x] `ToolRegistry` registers tools, lists definitions, dispatches calls
+- [x] `AgentEvent` enum with `textDelta`, `reasoningDelta`, `toolCalls`, `toolResult`, `complete` cases
+- [x] `Agent.runTurn` streams `AgentEvent`s (text/reasoning deltas forwarded in real-time)
+- [x] `Agent` runs a text-only turn (no tools) end-to-end, streaming deltas and yielding `.complete`
+- [x] `Agent` runs a turn with a mock tool: LLM calls tool, agent executes, yields `.toolCalls` and `.toolResult` events, feeds result, gets final response
+- [x] CLI refactored to use `Agent` + `ToolRegistry` with `WeatherTool: Tool`
+- [x] `WeatherTool` wraps existing `get_weather` definition and execution logic
+- [x] CLI REPL streams `AgentEvent`s (text deltas, tool activity) instead of manual loop
