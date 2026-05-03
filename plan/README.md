@@ -5,7 +5,7 @@
 | [18](18-agent-skills.md) | feature | Agent Skills | draft | 14, 15, 16, 17 |
 | [17](17-text-editor-tool.md) | feature | Text Editor Tool | draft | 14 |
 | [16](16-programmatic-tool-calling-lua.md) | feature | Programmatic Tool Calling (Lua) | draft | 14, 15 |
-| [15](15-bash-tool-tree-sitter.md) | feature | Bash Tool + Tree-Sitter | not started | 14 |
+| [15](15-bash-tool-tree-sitter.md) | feature | Bash Tool + Tree-Sitter | done | 14 |
 | [14](14-initialize-zoomies.md) | feature | Initialize Zoomies (Agent) | done | 12 |
 | [13](13-compaction.md) | feature | Compaction | done | 07, 12 |
 | [12](12-tools-management.md) | feature | Tools Management | done | 07 |

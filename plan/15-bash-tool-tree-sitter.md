@@ -1,6 +1,6 @@
 # 15 — Bash Tool + Tree-Sitter
 
-## Status: not started
+## Status: done
 
 ## Depends on
 14 (Initialize Zoomies)
@@ -207,14 +207,14 @@ On invalid parse, returns a ToolResult with the parse errors formatted as text, 
 The tree-sitter C API wrapper (`TreeSitterBridge.swift`) lives in zoomies and is shared by all tree-sitter validators (bash now, Lua in plan 16). It wraps `ts_parser_new`, `ts_parser_set_language`, `ts_parser_parse_string`, and error node traversal into a Swift-friendly interface.
 
 ## Acceptance criteria
-- [ ] `CTreeSitter` target builds with vendored tree-sitter core C sources and modulemap
-- [ ] `CTreeSitterBash` target builds with vendored bash grammar C sources and modulemap
-- [ ] `TreeSitterBridge` provides reusable Swift wrapper for tree-sitter C API
-- [ ] `BashValidator` holds parser as state (`final class`), parses commands and detects syntax errors
-- [ ] `BashValidationResult` distinguishes valid from invalid with error details
-- [ ] `BashTool` conforms to `Tool` protocol from plan 14, imports `zoomies` only
-- [ ] `BashTool` validates before execution, rejects invalid commands with parse errors
-- [ ] `BashTool` executes valid commands via `Process`, returns stdout/stderr/exitCode
-- [ ] Timeout enforcement on command execution
-- [ ] Tests: valid commands pass, invalid commands rejected, execution produces results
-- [ ] All existing tests pass unchanged
+- [x] `CTreeSitter` target builds with vendored tree-sitter core C sources and modulemap
+- [x] `CTreeSitterBash` target builds with vendored bash grammar C sources and modulemap
+- [x] `TreeSitterBridge` provides reusable Swift wrapper for tree-sitter C API
+- [x] `BashValidator` holds parser as state (`final class`), parses commands and detects syntax errors
+- [x] `BashValidationResult` distinguishes valid from invalid with error details
+- [x] `BashTool` conforms to `Tool` protocol from plan 14, imports `zoomies` only
+- [x] `BashTool` validates before execution, rejects invalid commands with parse errors
+- [x] `BashTool` executes valid commands via `Process`, returns stdout/stderr/exitCode
+- [x] Timeout enforcement on command execution
+- [x] Tests: valid commands pass, invalid commands rejected, execution produces results
+- [x] All existing tests pass unchanged

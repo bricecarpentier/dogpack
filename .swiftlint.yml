@@ -1,5 +1,8 @@
 strict: true
 
+excluded:
+  - Vendor
+
 disabled_rules:
   # Formatting rules managed by SwiftFormat
   - trailing_whitespace
