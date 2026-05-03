@@ -18,5 +18,6 @@
 | 14 | feature | Initialize Zoomies (Agent) | not started | 12 |
 | 15 | feature | Bash Tool + Tree-Sitter | not started | 14 |
 | 16 | feature | Programmatic Tool Calling (Lua) | draft | 14, 15 |
+| 17 | feature | Text Editor Tool | draft | 14 |
 
 Status: `not started` | `draft` | `in progress` | `done`
