@@ -97,6 +97,8 @@ private func accumulate(_ responseStream: ResponseStream) async throws -> Assist
                 currentText = ""
             }
             stopReason = reason
+        case .usage:
+            break
         }
     }
 
@@ -173,6 +175,7 @@ struct IntegrationTests {
         )
         let request = ProviderRequest(
             model: "gpt-4o",
+            system: "system",
             messages: [.user("What's the weather?")],
             maxTokens: 256,
         )
@@ -217,6 +220,7 @@ struct IntegrationTests {
         )
         let request = ProviderRequest(
             model: "gpt-4o",
+            system: "system",
             messages: [.user("Weather for Paris and London")],
             maxTokens: 256,
         )
@@ -284,6 +288,7 @@ struct IntegrationTests {
         )
         let request = await ProviderRequest(
             model: "gpt-4o",
+            system: "system",
             messages: session.messages(),
             maxTokens: 256,
             tools: [weatherTool],
@@ -328,6 +333,7 @@ struct IntegrationTests {
 
         let request = await ProviderRequest(
             model: "gpt-4o",
+            system: "system",
             messages: session.messages(),
             maxTokens: 256,
         )

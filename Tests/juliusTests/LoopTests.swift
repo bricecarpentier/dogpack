@@ -72,6 +72,7 @@ struct LoopTests {
             provider: provider,
             session: session,
             model: "gpt-4o",
+            system: "system",
             maxTokens: 256,
         )
 
@@ -107,6 +108,7 @@ struct LoopTests {
             provider: provider,
             session: session,
             model: "gpt-4o",
+            system: "system",
             maxTokens: 256,
         )
 
@@ -138,6 +140,7 @@ struct LoopTests {
             provider: hangingProvider,
             session: session,
             model: "gpt-4o",
+            system: "system",
             maxTokens: 256,
         )
 
@@ -177,6 +180,7 @@ struct LoopTests {
             provider: provider,
             session: session,
             model: "gpt-4o",
+            system: "system",
             maxTokens: 256,
             stopCondition: { session in
                 await session.messages().count >= 2 // user + first assistant
@@ -213,6 +217,7 @@ struct LoopTests {
             provider: provider,
             session: session,
             model: "gpt-4o",
+            system: "system",
             maxTokens: 256,
         )
 
@@ -268,6 +273,7 @@ struct LoopToolTests {
             provider: provider,
             session: session,
             model: "gpt-4o",
+            system: "system",
             maxTokens: 256,
             tools: [weatherTool],
         )
@@ -323,6 +329,7 @@ struct LoopToolTests {
             provider: provider,
             session: session,
             model: "gpt-4o",
+            system: "system",
             maxTokens: 256,
             tools: [weatherTool],
         )
@@ -352,6 +359,7 @@ struct LoopToolTests {
             provider: provider,
             session: session,
             model: "gpt-4o",
+            system: "system",
             maxTokens: 256,
         )
 

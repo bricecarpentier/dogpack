@@ -48,11 +48,10 @@ public final class OpenAIProvider: Provider, @unchecked Sendable {
             "messages": request.messages.map(serializeMessage),
             "max_tokens": request.maxTokens,
             "stream": true,
+            "stream_options": ["include_usage": true],
         ]
 
-        if let system = request.system {
-            body["system"] = system
-        }
+        body["system"] = request.system
         if let temperature = request.temperature {
             body["temperature"] = temperature
         }
@@ -128,6 +127,8 @@ public final class OpenAIProvider: Provider, @unchecked Sendable {
                 "tool_call_id": toolResult.callId,
                 "content": toolResult.output,
             ]
+        case let .compactedSummary(summary):
+            return ["role": "system", "content": summary]
         }
     }
 
@@ -202,8 +203,17 @@ public final class OpenAIProvider: Provider, @unchecked Sendable {
         _ data: Data,
         pendingToolCalls: inout [Int: PendingToolCall],
     ) throws -> [ProviderEvent] {
-        let choice = try parseChoice(from: data)
+        let (object, choice) = try parseTopLevel(from: data)
         var events: [ProviderEvent] = []
+
+        // Check for usage in top-level object (final chunk)
+        if let usageObj = object["usage"] as? [String: Any] {
+            let promptTokens = usageObj["prompt_tokens"] as? Int ?? 0
+            let completionTokens = usageObj["completion_tokens"] as? Int ?? 0
+            events.append(.usage(Usage(promptTokens: promptTokens, completionTokens: completionTokens)))
+        }
+
+        guard let choice else { return events }
 
         if let delta = choice["delta"] as? [String: Any] {
             appendDeltaEvents(from: delta, into: &events)
@@ -224,7 +234,7 @@ public final class OpenAIProvider: Provider, @unchecked Sendable {
         return events
     }
 
-    private func parseChoice(from data: Data) throws -> [String: Any] {
+    private func parseTopLevel(from data: Data) throws -> (object: [String: Any], choice: [String: Any]?) {
         let json: Any
         do {
             json = try JSONSerialization.jsonObject(with: data)
@@ -232,13 +242,15 @@ public final class OpenAIProvider: Provider, @unchecked Sendable {
             throw JuliusError.responseParsingFailed("Invalid JSON in response chunk: \(error.localizedDescription)")
         }
 
-        guard let object = json as? [String: Any],
-              let choices = object["choices"] as? [[String: Any]],
-              let choice = choices.first
-        else {
-            throw JuliusError.responseParsingFailed("Missing 'choices' in response chunk")
+        guard let object = json as? [String: Any] else {
+            throw JuliusError.responseParsingFailed("Expected JSON object in response chunk")
         }
-        return choice
+
+        // Usage-only chunks may have empty choices array or no choices at all
+        if let choices = object["choices"] as? [[String: Any]], let choice = choices.first {
+            return (object, choice)
+        }
+        return (object, nil)
     }
 
     private func appendDeltaEvents(from delta: [String: Any], into events: inout [ProviderEvent]) {

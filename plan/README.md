@@ -14,7 +14,7 @@
 | 10 | feature | ArgumentParser Refactor | done | 08 |
 | 11 | bug | Pass CLI args through `mise run dev` | done | — |
 | 12 | feature | Tools Management | done | 07 |
-| 13 | feature | Compaction | not started | 07, 12 |
+| 13 | feature | Compaction | done | 07, 12 |
 | 14 | feature | Initialize Zoomies (Agent) | not started | 12 |
 | 15 | feature | Bash Tool + Tree-Sitter | not started | 14 |
 | 16 | feature | Programmatic Tool Calling (Lua) | draft | 14, 15 |

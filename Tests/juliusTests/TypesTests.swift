@@ -27,6 +27,8 @@ private func accumulateMessage(
             stopReason = reason
         case .toolCall:
             break
+        case .usage:
+            break
         }
     }
     return try AssistantMessage(

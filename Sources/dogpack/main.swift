@@ -101,9 +101,7 @@ func displayStream(_ stream: AsyncThrowingStream<LoopEvent, Error>) async throws
         case .delta(.done):
             print()
             inReasoning = false
-        case .toolCalls:
-            break
-        case .complete:
+        case .delta(.usage), .toolCalls, .complete:
             break
         }
     }
@@ -139,6 +137,8 @@ func printEvent(_ event: LoopEvent, inReasoning: Bool) -> Bool {
     case .delta(.done):
         print()
         return false
+    case .delta(.usage):
+        return inReasoning
     case .toolCalls, .complete:
         return inReasoning
     }
@@ -151,6 +151,7 @@ func handleToolCycle(provider: OpenAIProvider, session: InMemorySession, model: 
             provider: provider,
             session: session,
             model: model,
+            system: "You are a helpful assistant.",
             maxTokens: 4096,
             tools: builtinTools,
         )

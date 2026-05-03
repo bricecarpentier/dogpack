@@ -134,6 +134,7 @@ struct OpenAIProviderTests {
         )
         let request = ProviderRequest(
             model: "gpt-4o",
+            system: "system",
             messages: [.user("test")],
             maxTokens: 100,
         )
@@ -171,6 +172,7 @@ struct OpenAIProviderTests {
 
         _ = try await provider.send(ProviderRequest(
             model: "gpt-4o",
+            system: "system",
             messages: [.user("hi")],
             maxTokens: 10,
         ))
@@ -198,15 +200,107 @@ struct OpenAIProviderTests {
 
         _ = try await provider.send(ProviderRequest(
             model: "gpt-4o",
+            system: "system",
             messages: [.user("hi")],
             maxTokens: 10,
         ))
 
         #expect(captured.value == "sk-test-key-123")
     }
+
+    @Test
+    func `usage event from final chunk`() async throws {
+        let transport = MockTransport(cannedChunks: [
+            chatChunk(content: "Hi"),
+            chatChunk(finishReason: "stop"),
+            usageChunk(promptTokens: 150, completionTokens: 10),
+        ])
+
+        let provider = try OpenAIProvider(
+            baseURL: #require(URL(string: "https://api.openai.com/v1")),
+            makeTransport: { _, _ in transport },
+        )
+        let request = ProviderRequest(
+            model: "gpt-4o",
+            system: "system",
+            messages: [.user("Hello")],
+            maxTokens: 256,
+        )
+
+        let responseStream = try await provider.send(request)
+        var events: [ProviderEvent] = []
+        for try await event in responseStream.events {
+            events.append(event)
+        }
+
+        #expect(events.count == 3)
+        #expect(events[0] == .textDelta("Hi"))
+        #expect(events[1] == .done(.stop))
+
+        if case let .usage(usage) = events[2] {
+            #expect(usage.promptTokens == 150)
+            #expect(usage.completionTokens == 10)
+        } else {
+            Issue.record("Expected .usage at index 2, got \(events[2])")
+        }
+    }
+
+    @Test
+    func `compacted summary serialized as system message`() async throws {
+        let transport = MockTransport(cannedChunks: [
+            chatChunk(content: "Continuing"),
+            chatChunk(finishReason: "stop"),
+        ])
+
+        let provider = try OpenAIProvider(
+            baseURL: #require(URL(string: "https://api.openai.com/v1")),
+            makeTransport: { _, _ in transport },
+        )
+        let request = ProviderRequest(
+            model: "gpt-4o",
+            system: "system",
+            messages: [
+                .user("Start"),
+                .compactedSummary("Previous work done"),
+                .user("Continue"),
+            ],
+            maxTokens: 256,
+        )
+
+        _ = try await provider.send(request)
+
+        let sentData = try #require(transport.lastSentData)
+        let json = try JSONSerialization.jsonObject(with: sentData)
+        guard let body = json as? [String: Any],
+              let serialized = body["messages"] as? [[String: Any]]
+        else {
+            Issue.record("Expected JSON with messages"); return
+        }
+
+        #expect(serialized.count == 3)
+        #expect(serialized[0]["role"] as? String == "user")
+        #expect(serialized[1]["role"] as? String == "system")
+        #expect(serialized[1]["content"] as? String == "Previous work done")
+        #expect(serialized[2]["role"] as? String == "user")
+    }
 }
 
 /// Thread-safe box for capturing values from Sendable closures.
 private final class Box<T>: @unchecked Sendable {
     var value: T?
+}
+
+private func usageChunk(promptTokens: Int, completionTokens: Int) -> Data {
+    let payload: [String: Any] = [
+        "id": "chatcmpl-usage",
+        "object": "chat.completion.chunk",
+        "model": "gpt-4o",
+        "choices": [],
+        "usage": [
+            "prompt_tokens": promptTokens,
+            "completion_tokens": completionTokens,
+        ],
+    ]
+    // swiftlint:disable:next force_try
+    return try! JSONSerialization.data(withJSONObject: payload)
 }

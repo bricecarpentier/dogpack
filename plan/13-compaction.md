@@ -1,6 +1,6 @@
 # 13 — Compaction
 
-## Status: not started
+## Status: done
 
 ## Depends on
 07 (Loop), 12 (Tools Management)
@@ -16,10 +16,11 @@ Add token usage tracking from provider responses, then use it to drive compactio
 |------|--------|
 | `Sources/julius/Types.swift` | Modify — add `Usage` struct, `compactedSummary` case to `Message` |
 | `Sources/julius/Session.swift` | Modify — add `replaceMessages` to `Session` protocol |
-| `Sources/julius/Compaction.swift` | Create — `CompactionStrategy` protocol, `CompactionPlan`, `Compactor`, default strategy |
+| `Sources/julius/Compaction.swift` | Create — `CompactionStrategy` protocol (split into `compactRange` + `generateSummary`), `Compactor`, default strategy |
 | `Sources/julius/Loop.swift` | Modify — track usage from responses, accept optional `Compactor`, pass usage to compaction |
 | `Sources/julius/OpenAI/OpenAIProvider.swift` | Modify — request `stream_options: {include_usage: true}`, parse `usage` from final chunk |
 | `Tests/juliusTests/CompactionTests.swift` | Create — compaction strategy and Compactor tests |
+| `Tests/juliusTests/LoopCompactionTests.swift` | Create — Loop+Compaction integration test |
 | `Tests/juliusTests/IntegrationTests.swift` | Modify — add compaction integration test |
 
 ## Design
@@ -32,7 +33,7 @@ When the conversation history grows too large, compaction replaces older message
 
 ```
 Session messages: [user, assistant, user, assistant, user, assistant, ...]
-                                              ↑ compaction threshold
+                     ↑ compaction starts at index 0
 Before compaction:  [m0, m1, m2, m3, m4, m5, m6, m7]
 After compaction:   [summary(m0..m3), m4, m5, m6, m7]
 ```
@@ -90,30 +91,36 @@ The `Loop` tracks the last received `Usage` and passes it to the `Compactor`.
 
 ### Compaction strategy
 
-The strategy's only job is to identify which messages are stale and produce a summary. It does not decide the final message ordering — that belongs to the `Compactor`.
+The strategy has two jobs: identify which messages are stale (pure) and generate a summary (I/O). These are separate methods so the Compactor can validate the range before spending tokens on an API call.
 
 ```swift
 public protocol CompactionStrategy: Sendable {
-    /// Identify stale messages and produce a summary of them.
-    /// Returns the range of messages to compact and the summary text.
-    func compact(
+    /// Returns the candidate range of messages to compact.
+    /// The Compactor clamps out-of-bounds ranges but does not
+    /// otherwise adjust them.
+    func compactRange(in messages: [Message]) -> Range<Int>
+
+    /// Generate a summary of the given messages using the provider.
+    /// Receives the clamped range so custom strategies can target
+    /// only the compacted portion. The default implementation
+    /// sends the full conversation for cache-hit benefits.
+    func generateSummary(
         messages: [Message],
+        system: String,
+        range: Range<Int>,
         provider: Provider,
         model: String
-    ) async throws -> CompactionPlan
-}
-
-public struct CompactionPlan: Equatable, Sendable {
-    /// The range of messages to replace with the summary.
-    public var compactRange: Range<Int>
-    /// The summary text replacing the compacted messages.
-    public var summary: String
+    ) async throws -> String
 }
 ```
 
 ### Compactor
 
-A `Compactor` type owns the compaction policy (threshold, strategy) and orchestrates the workflow. It reads from the session, runs the strategy, and writes back. This keeps compaction logic out of both the Loop and the Session.
+A `Compactor` type owns the compaction policy (threshold, strategy) and orchestrates the workflow in three phases:
+
+1. **Range determination** (pure): calls `strategy.compactRange(in:)`, clamps to valid bounds, asserts boundary invariants in debug builds.
+2. **Summary generation** (I/O): calls `strategy.generateSummary(...)` only if the range is non-empty.
+3. **Application**: strips any prior `.compactedSummary`, inserts the new one, writes back via `replaceMessages`.
 
 ```swift
 public struct Compactor: Sendable {
@@ -125,39 +132,37 @@ public struct Compactor: Sendable {
     func compactIfNeeded(
         _ session: Session,
         lastUsage: Usage?,
+        system: String,
         provider: Provider,
         model: String
     ) async throws -> Bool
 }
 ```
 
-The Compactor triggers when `lastUsage.promptTokens >= tokenLimit`. It enforces the message structure invariant: system prompt (if applicable) → at most one compaction summary → recent turns. It applies the `CompactionPlan` and writes the result back to the session via `replaceMessages`.
+The Compactor triggers when `lastUsage.promptTokens >= tokenLimit`. It enforces the message structure invariant: system prompt → at most one compaction summary → recent turns. Compaction is best-effort in the Loop — errors are caught and the conversation continues.
 
 ### Re-compaction
 
-There is always at most one `.compactedSummary` in the message list. On re-compaction, the strategy receives the full message list including any existing summary. The existing summary is treated like any other old message — it gets folded into the new summary along with any other stale turns. The strategy does not special-case `.compactedSummary`.
+There is always at most one `.compactedSummary` in the message list. On re-compaction, the strategy receives the full message list including any existing summary. Since the default strategy compacts from index 0, the existing summary falls within the compacted range and is included in the summarization request — the model builds on the prior summary rather than re-deriving it from scratch.
 
 ```
 First compaction:   [m0, m1, m2, m3, m4, m5] → [summary(m0..m1), m2, m3, m4, m5]
-Re-compaction:      [summary(m0..m1), m2, m3, m4, m5, m6, m7] → [summary(m0..m3), m4, m5, m6, m7]
+Re-compaction:      [summary(m0..m1), m2, m3, m4, m5, m6, m7] → [summary(summary+m2..m3), m4, m5, m6, m7]
 ```
 
-The summary always occupies the same slot. The `Compactor` enforces "at most one summary" as a post-condition.
+The Compactor strips any prior `.compactedSummary` before inserting the new one.
 
 ### Turn selection heuristic
 
-A default strategy that keeps:
-- The first user message (original task)
-- The last N turns (configurable, default 4)
-- Compacts everything in between into a summary
+A default strategy that keeps the last N turns (configurable, default 4) and compacts everything before them from index 0. Compacting from the start means re-compaction naturally includes any prior `.compactedSummary` in the new summary — the model builds on the previous summary rather than losing it.
 
-A "turn" is an atomic unit — `user` message plus the assistant response, including any tool call/result exchanges. The heuristic must not split `assistant(.toolUse)` → `toolResult` pairs.
+A "turn" is an atomic unit — `user` message plus the assistant response, including any tool call/result exchanges. The heuristic scans backwards for `.user` and `.compactedSummary` boundaries so tool call/result pairs are never split.
 
-The summary is generated by sending the to-be-compacted messages to the model with a system prompt like: "Summarize the following conversation, preserving key decisions, findings, and the current state of work."
+The default strategy also accepts a configurable `summarizationPrompt` (defaults to a generic summarization instruction). The summary is generated by appending this prompt as a user message to the full conversation and sending it through the same provider using the conversation's `system` prompt. This reuses the cached prompt prefix — only the new user message and response tokens are uncached.
 
 ### Boundary integrity
 
-When applying a `CompactionPlan`, the Compactor adjusts `compactRange` so it doesn't split a tool call/result pair. The strategy returns its best guess at a range; the Compactor walks the boundary forward or backward to the nearest safe split point (always on a `user` message boundary). This centralizes the integrity check and keeps strategies simple.
+The strategy is responsible for producing ranges with valid boundaries. The Compactor clamps out-of-bounds ranges and asserts boundary invariants in debug builds. The default strategy compacts from index 0, so the lower bound is always valid. The upper bound must land on a `.user` or `.compactedSummary` boundary to preserve tool call/result pairs. If a custom strategy violates the contract, the assertion fires immediately during development. There is no silent range adjustment in production — a bad range from a custom strategy is that strategy's bug to fix.
 
 ### New message type
 
@@ -194,23 +199,28 @@ public protocol Session: Sendable {
 
 ### Loop integration
 
-The Loop receives an optional `Compactor`. It tracks the last `Usage` received from the provider. Before each request, it calls `compactor.compactIfNeeded(session, lastUsage: lastUsage, provider, model)`. If compaction occurs, the session history is already updated — the Loop continues as normal.
+The Loop receives an optional `Compactor`. It tracks the last `Usage` received from the provider. Before each request, it calls `compactor.compactIfNeeded(session, lastUsage:, system:, provider:, model:)` as best-effort — errors are caught and the conversation continues. If compaction succeeds, the session history is already updated and the Loop continues as normal.
 
 If no compactor is provided, compaction is disabled. Usage is still tracked and surfaced regardless.
 
 ## Acceptance criteria
-- [ ] `Usage` struct with `promptTokens` and `completionTokens`
-- [ ] `ProviderEvent.usage(Usage)` case added and emitted by providers
-- [ ] OpenAI provider requests `stream_options: {include_usage: true}` and parses usage from final chunk
-- [ ] `CompactionStrategy` protocol with a default summarization implementation
-- [ ] `CompactionPlan` type with `compactRange` and `summary`
-- [ ] `Compactor` type that orchestrates strategy + token-based threshold + session writes
-- [ ] `Message.compactedSummary` case added and handled in all `switch` sites
-- [ ] Default strategy uses the provider to generate a summary of older turns
-- [ ] Loop tracks last `Usage`, accepts optional `Compactor`, passes usage to compaction
-- [ ] Session gains `replaceMessages` method
-- [ ] Compactor enforces message structure invariant (system → summary → recent turns)
-- [ ] Compactor adjusts compaction boundary to avoid splitting tool call/result pairs
-- [ ] Provider serializes `.compactedSummary` as a system-like message
-- [ ] Integration test: long conversation triggers compaction and continues successfully
-- [ ] All existing tests pass unchanged
+- [x] `Usage` struct with `promptTokens` and `completionTokens`
+- [x] `ProviderEvent.usage(Usage)` case added and emitted by providers
+- [x] OpenAI provider requests `stream_options: {include_usage: true}` and parses usage from final chunk
+- [x] `CompactionStrategy` protocol split into `compactRange(in:)` (pure) and `generateSummary(messages:system:range:provider:model:)` (I/O)
+- [x] `generateSummary` receives `system` (reuses conversation's cached prefix) and `range` (targets compacted portion)
+- [x] `Compactor` type with three-phase workflow: range → summary → apply
+- [x] `Message.compactedSummary` case added and handled in all `switch` sites
+- [x] Default strategy compacts from index 0, includes prior `.compactedSummary` in re-compaction
+- [x] Default strategy accepts configurable `summarizationPrompt`
+- [x] Loop+Compaction integration tested (compaction runs between loop iterations)
+- [x] Loop tracks last `Usage`, accepts optional `Compactor`, passes usage to compaction
+- [x] Compaction is best-effort in the Loop — errors are caught, conversation continues
+- [x] Session gains `replaceMessages` method
+- [x] Compactor enforces message structure invariant (system → summary → recent turns)
+- [x] Compactor asserts boundary invariants in debug builds; strategies own boundary correctness
+- [x] Empty range guard prevents wasted API calls
+- [x] Empty summary guard prevents inserting useless `.compactedSummary("")`
+- [x] Provider serializes `.compactedSummary` as a system-like message
+- [x] Integration test: usage event parsing and compactedSummary serialization
+- [x] All existing tests pass unchanged

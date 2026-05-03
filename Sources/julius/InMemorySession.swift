@@ -12,4 +12,8 @@ public actor InMemorySession: Session {
     public func append(_ message: Message) throws {
         store.append(message)
     }
+
+    public func replaceMessages(_ messages: [Message]) throws {
+        store = messages
+    }
 }
