@@ -4,10 +4,11 @@ import Foundation
 
 public protocol CompactionStrategy: Sendable {
     /// Returns the candidate range of messages to compact.
-    /// Ranges should start and end on `.user` or `.compactedSummary`
-    /// boundaries to preserve tool call/result pairs intact.
-    /// The Compactor clamps out-of-bounds ranges but does not
-    /// otherwise adjust them.
+    /// The Compactor clamps out-of-bounds ranges and asserts in debug
+    /// that the range boundaries land on user-turn boundaries
+    /// (`.user` or `.compactedSummary`). The default strategy always
+    /// starts at index 0; custom strategies returning non-zero lower
+    /// bounds must ensure the lower bound is a user-turn boundary.
     func compactRange(in messages: [Message]) -> Range<Int>
 
     /// Generate a summary of the given messages using the provider.
@@ -15,22 +16,29 @@ public protocol CompactionStrategy: Sendable {
     /// to the conversation and sends it through the provider.
     func generateSummary(
         messages: [Message],
+        system: String,
+        range: Range<Int>,
         provider: Provider,
-        model: String
+        model: String,
     ) async throws -> String
 }
 
 // MARK: - Default Strategy
 
-/// A default strategy that keeps the first user message and the last N turns,
-/// compacting everything in between into a model-generated summary.
+/// A default strategy that keeps the last N turns intact,
+/// compacting everything before them into a model-generated summary.
 public struct DefaultCompactionStrategy: CompactionStrategy, Sendable {
     /// Number of recent turns to keep intact. A "turn" is a user message
     /// plus the assistant response, including any tool call/result exchanges.
     public var recentTurnsToKeep: Int
 
-    public init(recentTurnsToKeep: Int = 4) {
+    /// The user prompt appended to the conversation for summarization.
+    public var summarizationPrompt: String
+
+    public init(recentTurnsToKeep: Int = 4, summarizationPrompt: String? = nil) {
         self.recentTurnsToKeep = recentTurnsToKeep
+        self.summarizationPrompt = summarizationPrompt
+            ?? "Summarize the conversation so far, preserving key decisions, findings, and the current state of work."
     }
 
     public func compactRange(in messages: [Message]) -> Range<Int> {
@@ -38,45 +46,35 @@ public struct DefaultCompactionStrategy: CompactionStrategy, Sendable {
             return 0 ..< 0
         }
 
-        // Find the start of recent turns by scanning backwards for .user messages
+        // Find the start of recent turns by scanning backwards for user-turn boundaries
         var turnCount = 0
         var recentStart = messages.count
 
-        for index in stride(from: messages.count - 1, through: 1, by: -1) {
-            if case .user = messages[index] {
-                turnCount += 1
-                recentStart = index
-                if turnCount >= recentTurnsToKeep {
-                    break
-                }
+        for index in stride(from: messages.count - 1, through: 0, by: -1) where messages[index].isUserTurnBoundary {
+            turnCount += 1
+            recentStart = index
+            if turnCount >= recentTurnsToKeep {
+                break
             }
         }
 
         let compactEnd = min(recentStart, messages.count)
-
-        // Ensure lower bound is on a .user message boundary
-        var lower = 1
-        while lower < compactEnd {
-            if case .user = messages[lower] { break }
-            lower += 1
-        }
-
-        return lower ..< compactEnd
+        return 0 ..< compactEnd
     }
 
     public func generateSummary(
         messages: [Message],
+        system: String,
+        range _: Range<Int>,
         provider: Provider,
-        model: String
+        model: String,
     ) async throws -> String {
         var summaryMessages = messages
-        summaryMessages.append(.user(
-            "Summarize the conversation so far, preserving key decisions, findings, and the current state of work.",
-        ))
+        summaryMessages.append(.user(summarizationPrompt))
 
         let request = ProviderRequest(
             model: model,
-            system: "You are a helpful assistant that produces concise summaries.",
+            system: system,
             messages: summaryMessages,
             maxTokens: 1024,
         )
@@ -112,7 +110,7 @@ public struct Compactor: Sendable {
         lastUsage: Usage?,
         system: String,
         provider: Provider,
-        model: String
+        model: String,
     ) async throws -> Bool {
         guard let usage = lastUsage, usage.promptTokens >= tokenLimit else {
             return false
@@ -129,8 +127,10 @@ public struct Compactor: Sendable {
         // Phase 2: generate summary (I/O)
         let summary = try await strategy.generateSummary(
             messages: messages,
+            system: system,
+            range: clamped,
             provider: provider,
-            model: model
+            model: model,
         )
         guard !summary.isEmpty else { return false }
 
@@ -155,21 +155,18 @@ public struct Compactor: Sendable {
 
         assert(
             result.isEmpty || isUserBoundary(result.lowerBound, in: messages),
-            "CompactionStrategy returned a range starting on a non-user message at index \(result.lowerBound)"
+            "CompactionStrategy returned a range starting on a non-user message at index \(result.lowerBound)",
         )
         assert(
             result.isEmpty || result.upperBound == messages.count || isUserBoundary(result.upperBound, in: messages),
-            "CompactionStrategy returned a range ending on a non-user message at index \(result.upperBound)"
+            "CompactionStrategy returned a range ending on a non-user message at index \(result.upperBound)",
         )
 
         return result
     }
 
     private func isUserBoundary(_ index: Int, in messages: [Message]) -> Bool {
-        switch messages[index] {
-        case .user, .compactedSummary: true
-        default: false
-        }
+        messages[index].isUserTurnBoundary
     }
 
     private func isSummary(_ message: Message) -> Bool {

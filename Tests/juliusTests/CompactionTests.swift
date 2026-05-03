@@ -9,9 +9,15 @@ private struct FixedCompactionStrategy: CompactionStrategy {
     var range: Range<Int>
     var summary: String
 
-    func compactRange(in _: [Message]) -> Range<Int> { range }
+    func compactRange(in _: [Message]) -> Range<Int> {
+        range
+    }
 
-    func generateSummary(messages _: [Message], provider _: Provider, model _: String) async throws -> String {
+    func generateSummary(
+        messages _: [Message], system _: String,
+        range _: Range<Int>, provider _: Provider,
+        model _: String,
+    ) async throws -> String {
         summary
     }
 }
@@ -193,7 +199,7 @@ struct CompactionTests {
     // MARK: - DefaultCompactionStrategy.compactRange
 
     @Test
-    func `default strategy compacts middle messages`() async throws {
+    func `default strategy compacts from start`() {
         let messages: [Message] = [
             .user("Start task"),
             .assistant(AssistantMessage(content: [.text("Step 1")], stopReason: .stop)),
@@ -208,12 +214,12 @@ struct CompactionTests {
         let strategy = DefaultCompactionStrategy(recentTurnsToKeep: 2)
         let range = strategy.compactRange(in: messages)
 
-        // Index 1 is .assistant, so lower walks to index 2 (.user "Continue")
-        #expect(range == 2 ..< 4)
+        // Keeps last 2 turns (indices 4..8), compacts everything before
+        #expect(range == 0 ..< 4)
     }
 
     @Test
-    func `default strategy keeps all when few turns`() async throws {
+    func `default strategy keeps all when few turns`() {
         let messages: [Message] = [
             .user("Q1"),
             .assistant(AssistantMessage(content: [.text("A1")], stopReason: .stop)),
@@ -224,12 +230,12 @@ struct CompactionTests {
         let strategy = DefaultCompactionStrategy(recentTurnsToKeep: 4)
         let range = strategy.compactRange(in: messages)
 
-        // Index 1 is .assistant, walks to 2 (.user "Q2"), but compactEnd is also 2
-        #expect(range == 2 ..< 2) // empty — all turns kept
+        // All 2 turns fit within keep=4, compactEnd = 0
+        #expect(range == 0 ..< 0)
     }
 
     @Test
-    func `default strategy range skips tool exchange to user boundary`() async throws {
+    func `default strategy compacts tool exchanges`() {
         let messages: [Message] = [
             .user("Task"),
             .assistant(AssistantMessage(
@@ -246,12 +252,11 @@ struct CompactionTests {
         let strategy = DefaultCompactionStrategy(recentTurnsToKeep: 1)
         let range = strategy.compactRange(in: messages)
 
-        // With keep=1, recentStart=5 (.user "Step 3"), lower walks to 3 (.user "Step 2")
-        #expect(range == 3 ..< 5)
-        if case .user = messages[range.lowerBound] {
-            // correct boundary
-        } else {
-            Issue.record("Range should start on a .user message boundary")
+        // With keep=1, recentStart=5 (.user "Step 3"), compacts 0..<5
+        #expect(range == 0 ..< 5)
+        guard case .user = messages[range.upperBound] else {
+            Issue.record("Range should end on a .user message boundary")
+            return
         }
     }
 

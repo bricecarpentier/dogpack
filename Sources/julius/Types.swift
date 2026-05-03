@@ -39,6 +39,15 @@ public enum Message: Equatable, Sendable {
     case assistant(AssistantMessage)
     case toolResult(ToolResult)
     case compactedSummary(String)
+
+    /// Whether this message marks the start of a user turn.
+    /// Used by compaction to ensure ranges don't split tool exchanges.
+    public var isUserTurnBoundary: Bool {
+        switch self {
+        case .user, .compactedSummary: true
+        default: false
+        }
+    }
 }
 
 // MARK: - Tools
