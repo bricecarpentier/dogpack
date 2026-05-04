@@ -1,11 +1,9 @@
 import CTreeSitterBash
 
 /// Validates bash commands using tree-sitter-bash parse checking.
-/// Delegates to `TreeSitterBridge` which owns the underlying `TSParser*`
-/// and handles cleanup via its own `deinit`.
-/// Conforms to `Sendable` via `@unchecked Sendable` since the underlying C pointer
-/// is not thread-safe but will be used from a single concurrency domain.
-public final class BashValidator: @unchecked Sendable {
+/// Delegates to `TreeSitterBridge` which serializes access to the
+/// underlying `TSParser*` via actor isolation.
+public final class BashValidator: Sendable {
     private let bridge: TreeSitterBridge
 
     public init() {
@@ -15,12 +13,12 @@ public final class BashValidator: @unchecked Sendable {
     }
 
     /// Parse a bash command string and return validation result.
-    public func validate(_ command: String) -> BashValidationResult {
+    public func validate(_ command: String) async -> BashValidationResult {
         guard !command.isEmpty else {
             return .valid
         }
 
-        return bridge.withTree(command) { tree in
+        return await bridge.withTree(command) { tree in
             if TreeSitterBridge.hasErrors(in: tree) {
                 let errorInfos = TreeSitterBridge.collectErrors(in: tree)
                 let errors = errorInfos.map { info in

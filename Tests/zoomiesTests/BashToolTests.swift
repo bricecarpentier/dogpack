@@ -9,29 +9,29 @@ import zoomies
 struct BashValidatorTests {
     /// Valid simple commands pass validation.
     @Test
-    func `valid simple commands`() {
+    func `valid simple commands`() async {
         let validator = BashValidator()
 
-        #expect(validator.validate("echo hello") == .valid)
-        #expect(validator.validate("ls -la /tmp") == .valid)
-        #expect(validator.validate("cat file.txt | grep pattern") == .valid)
-        #expect(validator.validate("export FOO=bar") == .valid)
+        #expect(await validator.validate("echo hello") == .valid)
+        #expect(await validator.validate("ls -la /tmp") == .valid)
+        #expect(await validator.validate("cat file.txt | grep pattern") == .valid)
+        #expect(await validator.validate("export FOO=bar") == .valid)
     }
 
     /// Empty commands are treated as valid (no execution needed).
     @Test
-    func `empty command is valid`() {
+    func `empty command is valid`() async {
         let validator = BashValidator()
-        #expect(validator.validate("") == .valid)
+        #expect(await validator.validate("") == .valid)
     }
 
     /// Invalid syntax is detected and reported with line/column info.
     @Test
-    func `invalid syntax detected`() {
+    func `invalid syntax detected`() async {
         let validator = BashValidator()
 
         // Incomplete if statement
-        let result = validator.validate("if true")
+        let result = await validator.validate("if true")
         if case let .invalid(errors) = result {
             #expect(!errors.isEmpty)
             #expect(errors.allSatisfy { $0.line > 0 && $0.column > 0 })
@@ -42,20 +42,20 @@ struct BashValidatorTests {
 
     /// Complex valid commands pass validation.
     @Test
-    func `complex valid commands`() {
+    func `complex valid commands`() async {
         let validator = BashValidator()
 
-        #expect(validator.validate("for i in 1 2 3; do echo $i; done") == .valid)
-        #expect(validator.validate("if [ -f file ]; then cat file; fi") == .valid)
-        #expect(validator.validate("function greet() { echo hello; }") == .valid)
+        #expect(await validator.validate("for i in 1 2 3; do echo $i; done") == .valid)
+        #expect(await validator.validate("if [ -f file ]; then cat file; fi") == .valid)
+        #expect(await validator.validate("function greet() { echo hello; }") == .valid)
     }
 
     /// Genuinely broken syntax is caught.
     @Test
-    func `broken syntax rejected`() {
+    func `broken syntax rejected`() async {
         let validator = BashValidator()
 
-        let result = validator.validate(")")
+        let result = await validator.validate(")")
         if case .invalid = result {
             // expected
         } else {

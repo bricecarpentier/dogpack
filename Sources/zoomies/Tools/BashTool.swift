@@ -56,7 +56,7 @@ public struct BashTool: Tool, Sendable {
         }
 
         // Validate via tree-sitter
-        let validationResult = validator.validate(command)
+        let validationResult = await validator.validate(command)
         switch validationResult {
         case .valid:
             break
