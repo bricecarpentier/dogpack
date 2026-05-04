@@ -1,6 +1,6 @@
 # 15 — Bash Tool + Tree-Sitter
 
-## Status: not started
+## Status: done
 
 ## Depends on
 14 (Initialize Zoomies)
@@ -14,8 +14,8 @@ Add a bash tool implementation in zoomies that validates generated shell command
 ## Files
 | File | Action |
 |------|--------|
-| `Sources/CTreeSitter/` | Create — vendored tree-sitter core C library (`src/*.c`, `include/tree_sitter/api.h`, `module.modulemap`) |
-| `Sources/CTreeSitterBash/` | Create — vendored bash grammar C sources (`src/parser.c`, `src/scanner.c`, `include/tree_sitter_bash.h`, `module.modulemap`) |
+| `Vendor/CTreeSitter/` | Create — vendored tree-sitter core C library (`src/*.c`, `include/tree_sitter/api.h`, `module.modulemap`) |
+| `Vendor/CTreeSitterBash/` | Create — vendored bash grammar C sources (`src/parser.c`, `src/scanner.c`, `include/tree_sitter_bash.h`, `module.modulemap`) |
 | `Sources/zoomies/TreeSitter/TreeSitterBridge.swift` | Create — shared tree-sitter C API wrapper for use by all validators |
 | `Sources/zoomies/Tools/BashValidator.swift` | Create — tree-sitter-bash parse and validate, holds parser as state |
 | `Sources/zoomies/Tools/BashTool.swift` | Create — bash tool conforming to `Tool`, execution, result handling |
@@ -23,8 +23,8 @@ Add a bash tool implementation in zoomies that validates generated shell command
 | `Tests/zoomiesTests/BashToolTests.swift` | Create — validation + execution tests |
 
 ### Vendored source versions
-- tree-sitter core: v0.24.x (from <https://github.com/tree-sitter/tree-sitter>)
-- tree-sitter-bash: v0.23.x (from <https://github.com/tree-sitter/tree-sitter-bash>)
+- tree-sitter core: v0.26.8 (from <https://github.com/tree-sitter/tree-sitter>)
+- tree-sitter-bash: v0.25.1 (from <https://github.com/tree-sitter/tree-sitter-bash>)
 
 ## Design
 
@@ -35,7 +35,7 @@ tree-sitter grammars are C libraries with no SPM support (no `Package.swift`). W
 Directory structure:
 
 ```
-Sources/
+Vendor/
 ├── CTreeSitter/              ← vendored tree-sitter core (from tree-sitter/lib/)
 │   ├── include/
 │   │   └── tree_sitter/
@@ -56,6 +56,7 @@ Sources/
     │   └── scanner.c
     └── module.modulemap
 ```
+=======
 
 `module.modulemap` for CTreeSitter:
 ```
@@ -80,8 +81,8 @@ Package.swift targets:
 ```swift
 targets: [
     // Existing targets...
-    .target(name: "CTreeSitter"),           // vendored core
-    .target(name: "CTreeSitterBash"),       // vendored bash grammar
+    .target(name: "CTreeSitter", path: "Vendor/CTreeSitter"),           // vendored core
+    .target(name: "CTreeSitterBash", path: "Vendor/CTreeSitterBash"),   // vendored bash grammar
     .target(
         name: "zoomies",
         dependencies: ["julius", "CTreeSitter", "CTreeSitterBash"]
@@ -206,14 +207,14 @@ On invalid parse, returns a ToolResult with the parse errors formatted as text, 
 The tree-sitter C API wrapper (`TreeSitterBridge.swift`) lives in zoomies and is shared by all tree-sitter validators (bash now, Lua in plan 16). It wraps `ts_parser_new`, `ts_parser_set_language`, `ts_parser_parse_string`, and error node traversal into a Swift-friendly interface.
 
 ## Acceptance criteria
-- [ ] `CTreeSitter` target builds with vendored tree-sitter core C sources and modulemap
-- [ ] `CTreeSitterBash` target builds with vendored bash grammar C sources and modulemap
-- [ ] `TreeSitterBridge` provides reusable Swift wrapper for tree-sitter C API
-- [ ] `BashValidator` holds parser as state (`final class`), parses commands and detects syntax errors
-- [ ] `BashValidationResult` distinguishes valid from invalid with error details
-- [ ] `BashTool` conforms to `Tool` protocol from plan 14, imports `zoomies` only
-- [ ] `BashTool` validates before execution, rejects invalid commands with parse errors
-- [ ] `BashTool` executes valid commands via `Process`, returns stdout/stderr/exitCode
-- [ ] Timeout enforcement on command execution
-- [ ] Tests: valid commands pass, invalid commands rejected, execution produces results
-- [ ] All existing tests pass unchanged
+- [x] `CTreeSitter` target builds with vendored tree-sitter core C sources and modulemap
+- [x] `CTreeSitterBash` target builds with vendored bash grammar C sources and modulemap
+- [x] `TreeSitterBridge` provides reusable Swift wrapper for tree-sitter C API
+- [x] `BashValidator` holds parser as state (`final class`), parses commands and detects syntax errors
+- [x] `BashValidationResult` distinguishes valid from invalid with error details
+- [x] `BashTool` conforms to `Tool` protocol from plan 14, imports `zoomies` only
+- [x] `BashTool` validates before execution, rejects invalid commands with parse errors
+- [x] `BashTool` executes valid commands via `Process`, returns stdout/stderr/exitCode
+- [x] Timeout enforcement on command execution
+- [x] Tests: valid commands pass, invalid commands rejected, execution produces results
+- [x] All existing tests pass unchanged

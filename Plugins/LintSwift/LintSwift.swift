@@ -5,7 +5,10 @@ import PackagePlugin
 struct LintSwift: CommandPlugin {
     func performCommand(context: PluginContext, arguments: [String]) async throws {
         let tool = try findTool("swiftlint")
-        let targets = context.package.targets.compactMap { $0 as? SourceModuleTarget }
+        let allTargets: [SourceModuleTarget] = context.package.targets.compactMap { $0 as? SourceModuleTarget }
+        let targets = allTargets.filter { target in
+            !target.sourceFiles(withSuffix: ".swift").isEmpty
+        }
 
         let cacheDir = context.pluginWorkDirectoryURL.appendingPathComponent("swiftlint.cache").path
         try FileManager.default.createDirectory(atPath: cacheDir, withIntermediateDirectories: true)

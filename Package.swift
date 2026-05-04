@@ -13,8 +13,25 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.7.1"),
     ],
     targets: [
+        // Vendored tree-sitter core C library (v0.26.8)
+        .target(
+            name: "CTreeSitter",
+            path: "Vendor/CTreeSitter",
+            sources: ["src/lib.c"],
+            cSettings: [.headerSearchPath("include")]
+        ),
+        // Vendored tree-sitter-bash grammar C sources (v0.25.1)
+        .target(
+            name: "CTreeSitterBash",
+            dependencies: ["CTreeSitter"],
+            path: "Vendor/CTreeSitterBash",
+            cSettings: [.headerSearchPath("include")]
+        ),
         .target(name: "julius"),
-        .target(name: "zoomies", dependencies: ["julius"]),
+        .target(
+            name: "zoomies",
+            dependencies: ["julius", "CTreeSitter", "CTreeSitterBash"]
+        ),
         .executableTarget(name: "dogpack", dependencies: [
             "zoomies",
             .product(name: "ArgumentParser", package: "swift-argument-parser"),
