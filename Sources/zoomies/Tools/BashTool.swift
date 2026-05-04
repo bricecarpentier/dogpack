@@ -94,63 +94,11 @@ public struct BashTool: Tool, Sendable {
     }
 
     private func executeCommand(_ command: String, callId: String) async -> ToolResult {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.global().async {
-                let process = Process()
-                let stdout = Pipe()
-                let stderr = Pipe()
-
-                process.standardOutput = stdout
-                process.standardError = stderr
-                process.arguments = ["-c", command]
-
-                if let workingDirectory {
-                    process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory)
-                }
-
-                // Use /bin/bash explicitly
-                process.executableURL = URL(fileURLWithPath: "/bin/bash")
-
-                let timer = DispatchSource.makeTimerSource()
-                timer.schedule(deadline: .now() + timeout)
-                timer.setEventHandler { [weak process] in
-                    process?.terminate()
-                }
-                timer.resume()
-
-                do {
-                    try process.run()
-                    process.waitUntilExit()
-                    timer.cancel()
-
-                    let stdoutData = stdout.fileHandleForReading.readDataToEndOfFile()
-                    let stderrData = stderr.fileHandleForReading.readDataToEndOfFile()
-
-                    let stdoutStr = String(data: stdoutData, encoding: .utf8) ?? ""
-                    let stderrStr = String(data: stderrData, encoding: .utf8) ?? ""
-
-                    var output = ""
-                    let exitCode = process.terminationStatus
-
-                    if exitCode == 0 {
-                        output = stdoutStr
-                    } else if process.terminationReason == .uncaughtSignal {
-                        output = "Command timed out after \(Int(timeout))s\n\(stderrStr)"
-                    } else {
-                        if !stdoutStr.isEmpty { output += stdoutStr + "\n" }
-                        if !stderrStr.isEmpty { output += "stderr: " + stderrStr }
-                        output += "exit code: \(exitCode)"
-                    }
-
-                    continuation.resume(returning: ToolResult(callId: callId, output: output))
-                } catch {
-                    timer.cancel()
-                    continuation.resume(returning: ToolResult(
-                        callId: callId,
-                        output: "Error: \(error.localizedDescription)",
-                    ))
-                }
-            }
-        }
+        let result = await ProcessRunner.run(
+            command,
+            workingDirectory: workingDirectory,
+            timeout: timeout,
+        )
+        return ToolResult(callId: callId, output: result.output)
     }
 }
