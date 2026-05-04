@@ -30,7 +30,7 @@ struct BashValidatorTests {
     func `invalid syntax detected`() {
         let validator = BashValidator()
 
-        // Unmatched parenthesis
+        // Incomplete if statement
         let result = validator.validate("if true")
         if case let .invalid(errors) = result {
             #expect(!errors.isEmpty)
