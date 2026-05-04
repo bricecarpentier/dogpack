@@ -1,8 +1,8 @@
 import CTreeSitterBash
 
 /// Validates bash commands using tree-sitter-bash parse checking.
-/// Holds a tree-sitter parser as stored state. Since it wraps a `TSParser*` (a C pointer),
-/// it is a `final class` with `deinit` to free the parser.
+/// Delegates to `TreeSitterBridge` which owns the underlying `TSParser*`
+/// and handles cleanup via its own `deinit`.
 /// Conforms to `Sendable` via `@unchecked Sendable` since the underlying C pointer
 /// is not thread-safe but will be used from a single concurrency domain.
 public final class BashValidator: @unchecked Sendable {
