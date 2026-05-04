@@ -20,22 +20,18 @@ public final class BashValidator: @unchecked Sendable {
             return .valid
         }
 
-        guard let tree = bridge.parse(command) else {
-            return .invalid(errors: [
-                ParseError(message: "failed to parse command", line: 0, column: 0),
-            ])
-        }
-        defer { ts_tree_delete(tree) }
-
-        if TreeSitterBridge.hasErrors(in: tree) {
-            let errorInfos = TreeSitterBridge.collectErrors(in: tree)
-            let errors = errorInfos.map { info in
-                ParseError(message: info.message, line: info.line, column: info.column)
+        return bridge.withTree(command) { tree in
+            if TreeSitterBridge.hasErrors(in: tree) {
+                let errorInfos = TreeSitterBridge.collectErrors(in: tree)
+                let errors = errorInfos.map { info in
+                    ParseError(message: info.message, line: info.line, column: info.column)
+                }
+                return .invalid(errors: errors)
             }
-            return .invalid(errors: errors)
-        }
-
-        return .valid
+            return .valid
+        } ?? .invalid(errors: [
+            ParseError(message: "failed to parse command", line: 0, column: 0),
+        ])
     }
 }
 

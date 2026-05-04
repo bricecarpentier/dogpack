@@ -17,14 +17,17 @@ public final class TreeSitterBridge: @unchecked Sendable {
         ts_parser_delete(parser)
     }
 
-    /// Parse a string and return the syntax tree handle.
-    /// Returns nil if parsing fails to produce a tree.
-    public func parse(_ input: String) -> OpaquePointer? {
+    /// Parse a string and execute the closure with the resulting syntax tree.
+    /// The tree is deleted automatically when the closure returns — the pointer
+    /// must not escape. Returns nil if parsing fails to produce a tree.
+    public func withTree<R>(_ input: String, _ body: (OpaquePointer) throws -> R) rethrows -> R? {
         var tree: OpaquePointer?
         input.withCString { ptr in
             tree = ts_parser_parse_string(parser, nil, ptr, UInt32(input.utf8.count))
         }
-        return tree
+        guard let tree else { return nil }
+        defer { ts_tree_delete(tree) }
+        return try body(tree)
     }
 
     /// Check if a tree contains any error nodes starting from the root.
