@@ -143,6 +143,44 @@ struct BashToolTests {
         #expect(result.output.contains("not in the allowed list"))
     }
 
+    /// Allowlist catches disallowed commands chained with semicolons, &&, pipes, and subshells.
+    @Test
+    func `allowlist catches chained commands`() async throws {
+        let tool = BashTool(allowedCommands: ["echo"])
+
+        // Semicolon chaining
+        let semicolon = try await tool.execute(ToolCall(
+            id: "chain1",
+            name: "bash",
+            arguments: #"{"command": "echo hello; rm -rf /"}"#,
+        ))
+        #expect(semicolon.output.contains("not in the allowed list"))
+
+        // AND chaining
+        let andChain = try await tool.execute(ToolCall(
+            id: "chain2",
+            name: "bash",
+            arguments: #"{"command": "echo hello && rm -rf /"}"#,
+        ))
+        #expect(andChain.output.contains("not in the allowed list"))
+
+        // Pipe chaining
+        let pipe = try await tool.execute(ToolCall(
+            id: "chain3",
+            name: "bash",
+            arguments: #"{"command": "echo hello | rm -rf /"}"#,
+        ))
+        #expect(pipe.output.contains("not in the allowed list"))
+
+        // Command substitution
+        let sub = try await tool.execute(ToolCall(
+            id: "chain4",
+            name: "bash",
+            arguments: #"{"command": "$(rm -rf /)"}"#,
+        ))
+        #expect(sub.output.contains("not in the allowed list"))
+    }
+
     /// Command allowlist allows authorized commands.
     @Test
     func `allowlist allows authorized`() async throws {

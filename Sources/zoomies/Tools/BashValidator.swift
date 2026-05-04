@@ -31,6 +31,19 @@ public final class BashValidator: Sendable {
             ParseError(message: "failed to parse command", line: 0, column: 0),
         ])
     }
+
+    /// Extract all command names from a bash command string via tree-sitter AST traversal.
+    /// Finds every `command_name` node including those in pipelines, lists, subshells,
+    /// and command substitutions. Returns an empty array if parsing fails.
+    public func extractCommandNames(_ command: String) async -> [String] {
+        guard !command.isEmpty else {
+            return []
+        }
+
+        return await bridge.withTree(command) { tree in
+            TreeSitterBridge.collectCommandNames(in: tree, source: command)
+        } ?? []
+    }
 }
 
 /// Result of validating a bash command through tree-sitter parsing.

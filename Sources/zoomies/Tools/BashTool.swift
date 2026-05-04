@@ -44,13 +44,14 @@ public struct BashTool: Tool, Sendable {
             )
         }
 
-        // Optional command allowlist check
+        // Optional command allowlist check via AST traversal
         if let allowed = allowedCommands {
-            let baseCommand = extractBaseCommand(from: command)
-            guard allowed.contains(baseCommand) else {
+            let commandNames = await validator.extractCommandNames(command)
+            let disallowed = commandNames.filter { !allowed.contains($0) }
+            if let blocked = disallowed.first {
                 return ToolResult(
                     callId: call.id,
-                    output: "Error: command '\(baseCommand)' is not in the allowed list",
+                    output: "Error: command '\(blocked)' is not in the allowed list",
                 )
             }
         }
@@ -83,14 +84,6 @@ public struct BashTool: Tool, Sendable {
             return nil
         }
         return command
-    }
-
-    private func extractBaseCommand(from command: String) -> String {
-        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Handle pipes and subshells — take the first token of the first segment
-        let firstSegment = trimmed.split(separator: "|", maxSplits: 1).first.map(String.init) ?? trimmed
-        let tokens = firstSegment.split(separator: " ", maxSplits: 1)
-        return tokens.first.map(String.init) ?? trimmed
     }
 
     private func executeCommand(_ command: String, callId: String) async -> ToolResult {

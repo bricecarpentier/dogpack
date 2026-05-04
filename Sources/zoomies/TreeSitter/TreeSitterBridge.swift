@@ -79,6 +79,38 @@ public actor TreeSitterBridge {
         return errors
     }
 
+    /// Collect all command names from a syntax tree, extracting their text
+    /// from the source string. Traverses the full tree to find `command_name`
+    /// nodes in pipelines, lists, subshells, and command substitutions.
+    public static func collectCommandNames(in tree: OpaquePointer, source: String) -> [String] {
+        let root = ts_tree_root_node(tree)
+        return collectCommandNames(from: root, source: source)
+    }
+
+    private static func collectCommandNames(from node: TSNode, source: String) -> [String] {
+        guard let nodeType = ts_node_type(node) else { return [] }
+        let typeStr = String(cString: nodeType)
+
+        // When we find a command_name, extract its text from the source
+        if typeStr == "command_name" {
+            let start = ts_node_start_byte(node)
+            let end = ts_node_end_byte(node)
+            let startIndex = source.index(source.startIndex, offsetBy: Int(start))
+            let endIndex = source.index(source.startIndex, offsetBy: Int(end))
+            let name = String(source[startIndex ..< endIndex]).trimmingCharacters(in: .whitespaces)
+            return name.isEmpty ? [] : [name]
+        }
+
+        // Recurse into children
+        var names: [String] = []
+        let childCount = ts_node_child_count(node)
+        for index in 0 ..< childCount {
+            let child = ts_node_child(node, UInt32(index))
+            names.append(contentsOf: collectCommandNames(from: child, source: source))
+        }
+        return names
+    }
+
     /// Extract context around an error node for a meaningful message.
     private static func errorContext(for node: TSNode) -> String {
         guard let type = ts_node_type(node) else {
